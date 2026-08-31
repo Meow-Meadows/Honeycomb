@@ -98,6 +98,50 @@ impl Board {
             dest &= dest - 1;
         }
     }
+
+    fn slider_moves(
+        moves: &mut Vec<Move>,
+        mut pieces: u64,
+        own: u64,
+        enemy: u64,
+        directions: &[(i8, i8)],
+    ) {
+        while pieces != 0 {
+            let from = pieces.trailing_zeros() as i8;
+            pieces &= pieces -1;
+
+            let file = from % 8;
+            let rank = from / 8;
+
+            for &(df, dr) in directions {
+                let mut f = file + df;
+                let mut r = rank + dr;
+
+                while (0..8).contains(&r) && (0..8).contains(&f) {
+                    let to = (r * 8 + f) as u8;
+                    let bit = 1u64 << to;
+
+                    if own & bit != 0 {
+                        break;
+                    }
+
+                    moves.push(Move {
+                        from: from as u8,
+                        to,
+                        promotion: None
+                    });
+
+                    if enemy & bit != 0 {
+                        break;
+                    }
+
+                    f += df;
+                    r += dr;
+                }
+            }
+        }
+    }
+
     pub fn generate_temp_legal_moves(&self) -> Vec<Move> {
         let mut moves = Vec::new();
 
@@ -169,6 +213,98 @@ impl Board {
 
         let k8 = ((knights & not_ab) >> 10) & (!own);
         self.normal_moves(&mut moves, k8, -10);
+
+        let (bishops, rooks, queens, king, own, enemy) = if self.white_to_move {
+            (
+                self.white_bishops,
+                self.white_rooks,
+                self.white_queens,
+                self.white_king,
+                white,
+                black,
+            )
+        } else {
+            (
+                self.black_bishops,
+                self.black_rooks,
+                self.black_queens,
+                self.black_king,
+                black,
+                white,
+            )
+        };
+
+        let diagonal_directions = [
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ];
+
+        let straight_directions = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+        ];
+
+        let queen_directions = [
+            (1, 0),
+            (0, 1),
+            (-1, 0),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ];
+
+        Self::slider_moves(
+            &mut moves,
+            bishops,
+            own,
+            enemy,
+            &diagonal_directions,
+        );
+
+        Self::slider_moves(
+            &mut moves,
+            rooks,
+            own,
+            enemy,
+            &straight_directions,
+        );
+
+        Self::slider_moves(
+            &mut moves,
+            queens,
+            own,
+            enemy,
+            &queen_directions,
+        );
+
+        // king
+        let from = king.trailing_zeros() as i8;
+        let file = from % 8;
+        let rank = from / 8;
+
+        for (df, dr) in queen_directions {
+            let f = file + df;
+            let r = rank + dr;
+
+            if (0..8).contains(&f) && (0..8).contains(&r) {
+                let to = (r * 8 + f) as u8;
+                let bit = 1u64 << to;
+
+                if own & bit == 0 {
+                    moves.push(Move {
+                        from: from as u8,
+                        to,
+                        promotion: None,
+                    })
+                }
+            }
+        }
 
         moves
     }
