@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Board {
     pub white_pawns: u64,
     pub white_knights: u64,
@@ -16,6 +17,7 @@ pub struct Board {
     pub white_to_move: bool,
 }
 
+#[derive(Clone, Copy)]
 pub struct Move {
     pub from: u8,
     pub to: u8,
@@ -138,14 +140,12 @@ impl Board {
         let not_ab: u64 = 0xFCFCFCFCFCFCFCFC;
         let not_gh: u64 = 0x3F3F3F3F3F3F3F3F;
 
-        if self.white_to_move {
-            let knights = self.white_knights;
-            let own = white;
+        let (knights, own) = if self.white_to_move {
+            (self.white_knights, white)
         }
         else {
-            let knights = self.black_knights;
-            let own = black;
-        }
+            (self.black_knights, black)
+        };
         let k1 = ((knights & not_a) << 15) & (!own);
         self.normal_moves(&mut moves, k1, 15);
 
@@ -245,4 +245,119 @@ impl Board {
         self.white_to_move = !self.white_to_move;
     }
 
+    pub fn in_check(&self, white: bool) -> bool {
+        let king = if white { self.white_king } else { self.black_king };
+        if king == 0 {
+            return false;
+        }
+
+        let (enemy_pawns, enemy_knights, enemy_bishops, enemy_rooks, enemy_queens, enemy_king) =
+            if white {
+                (
+                    self.black_pawns,
+                    self.black_knights,
+                    self.black_bishops,
+                    self.black_rooks,
+                    self.black_queens,
+                    self.black_king,
+                )
+            } else {
+                (
+                    self.white_pawns,
+                    self.white_knights,
+                    self.white_bishops,
+                    self.white_rooks,
+                    self.white_queens,
+                    self.white_king,
+                )
+            };
+
+        let square = king.trailing_zeros() as i8;
+        let file = square % 8;
+        let rank = square / 8;
+        let occupied = self.occupied_squares();
+
+        // knights
+        for (df, dr) in [
+            (1, 2), (2, 1), (2, -1), (1, -2),
+            (-1, -2), (-2, -1), (-2, 1), (-1, 2),
+        ] {
+            let f = file + df;
+            let r = rank + dr;
+
+            if (0..8).contains(&f) && (0..8).contains(&r) {
+                let bit = 1u64 << (r * 8 + f);
+                if enemy_knights & bit != 0 {
+                    return true;
+                }
+            }
+        }
+
+        // enemy king
+        for df in -1..=1 {
+            for dr in -1..=1 {
+                if df == 0 && dr == 0 {
+                    continue
+                }
+
+                let f = file + df;
+                let r = rank + dr;
+
+                if (0..8).contains(&f) && (0..8).contains(&r) {
+                    if enemy_king & (1u64 << (r * 8 + f)) != 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // first piece found on each ray either attacks king or blocks ray
+        let ray_attacked = |df : i8, dr : i8, attackers: u64| {
+            let mut f = file + df;
+            let mut r = rank + dr;
+
+            while (0..8).contains(&f) && (0..8).contains(&r) {
+                let bit = 1u64 << (r * 8 + f);
+
+                if occupied & bit != 0 {
+                    return attackers & bit != 0;
+                }
+
+                f += df;
+                r += dr;
+            }
+
+            false
+        };
+
+        let diagonal_attackers = enemy_bishops | enemy_queens;
+        for (df, dr) in [(1, 1), (1, -1), (-1, 1), (-1, -1)] {
+            if ray_attacked(df, dr, diagonal_attackers) {
+                return true;
+            }
+        }
+
+        let straight_attackers = enemy_rooks | enemy_queens;
+        for (df, dr) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
+            if ray_attacked(df, dr, straight_attackers) {
+                return true
+            }
+        }
+
+        // pawns
+        let not_a = 0xFEFEFEFEFEFEFEFEu64; // every square except file a
+        let not_h = 0x7F7F7F7F7F7F7F7Fu64; // every square except file h
+
+        let pawn_attacks = if white {
+            ((enemy_pawns & not_h) >> 7) | ((enemy_pawns & not_a) >> 9)
+        } else {
+            ((enemy_pawns & not_a) << 7) | ((enemy_pawns & not_h) << 9)
+        };
+
+        if pawn_attacks & king != 0 {
+            return true;
+        }
+
+        false
+    }
 }

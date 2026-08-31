@@ -1,5 +1,4 @@
-mod board;
-use board::Board;
+use honeycomb::board::Board;
 
 fn main() {
     let b = Board::starting_position();
