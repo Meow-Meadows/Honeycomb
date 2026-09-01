@@ -1,417 +1,180 @@
-#[derive(Clone)]
-pub struct Board {
-    pub white_pawns: u64,
-    pub white_knights: u64,
-    pub white_bishops: u64,
-    pub white_rooks: u64,
-    pub white_queens: u64,
-    pub white_king: u64,
-
-    pub black_pawns: u64,
-    pub black_knights: u64,
-    pub black_bishops: u64,
-    pub black_rooks: u64,
-    pub black_queens: u64,
-    pub black_king: u64,
-
-    pub white_to_move: bool,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Color {
+    White = 0,
+    Black = 1,
 }
 
-#[derive(Clone, Copy)]
+impl Color {
+    pub fn opposite(self) -> Self {
+        match self {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Piece {
+    Pawn = 0,
+    Knight = 1,
+    Bishop = 2,
+    Rook = 3,
+    Queen = 4,
+    King = 5,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Move {
     pub from: u8,
     pub to: u8,
-    pub promotion: Option<char>,
+    pub promotion: Option<Piece>,
+}
+
+pub const WHITE_KINGSIDE: u8 = 1;
+pub const WHITE_QUEENSIDE: u8 = 2;
+pub const BLACK_KINGSIDE: u8 = 4;
+pub const BLACK_QUEENSIDE: u8 = 8;
+
+
+#[derive(Clone)]
+pub struct Board {
+    // pieces[colour][piece]
+    pieces: [[u64; 6]; 2],
+
+    pub side_to_move: Color,
+    pub castling_rights: u8,
+    pub en_passant: Option<u8>,
+    pub halfmove_clock: u32,
+    pub fullmove_number: u32,
 }
 
 impl Board {
-    pub fn starting_position() -> Self {
-        Board {
-            white_pawns: 0x000000000000FF00,
-            white_knights: 0x0000000000000042,
-            white_bishops: 0x0000000000000024,
-            white_rooks: 0x0000000000000081,
-            white_queens: 0x0000000000000008,
-            white_king: 0x0000000000000010,
-
-            black_pawns: 0x00FF000000000000,
-            black_knights: 0x4200000000000000,
-            black_bishops: 0x2400000000000000,
-            black_rooks: 0x8100000000000000,
-            black_queens: 0x0800000000000000,
-            black_king: 0x1000000000000000,
-
-            white_to_move: true,
+    pub fn empty() -> Self {
+        Self {
+            pieces: [[0; 6]; 2],
+            side_to_move: Color::White,
+            castling_rights: 0,
+            en_passant: None,
+            halfmove_clock: 0,
+            fullmove_number: 1,
         }
     }
 
+    pub fn starting_position() -> Self {
+        Self {
+            pieces: [
+                [
+                    0x000000000000FF00, // white pawns
+                    0x0000000000000042, // white knights
+                    0x0000000000000024, // white bishops
+                    0x0000000000000081, // white rooks
+                    0x0000000000000008, // white queen
+                    0x0000000000000010, // white king
+                ],
+                [
+                    0x00FF000000000000, // black pawns
+                    0x4200000000000000, // black knights
+                    0x2400000000000000, // black bishops
+                    0x8100000000000000, // black rooks
+                    0x0800000000000000, // black queen
+                    0x1000000000000000, // black king
+                ],
+            ],
+
+            side_to_move: Color::White,
+            castling_rights: WHITE_KINGSIDE
+                | WHITE_QUEENSIDE
+                | BLACK_KINGSIDE
+                | BLACK_QUEENSIDE,
+            en_passant: None,
+            halfmove_clock: 0,
+            fullmove_number: 1,
+        }
+    }
+
+    pub fn bitboard(&self, color: Color, piece: Piece) -> u64 {
+        self.pieces[color as usize][piece as usize]
+    }
+
+    pub fn set_piece(&mut self, color: Color, piece: Piece, square: u8) {
+        self.clear_square(square);
+        self.pieces[color as usize][piece as usize] |= 1u64 << square;
+    }
+
+    pub fn clear_square(&mut self, square: u8) {
+        let bit = !(1u64 << square);
+
+        for color in 0..2 {
+            for piece in 0..6 {
+                self.pieces[color][piece] &= bit;
+            }
+        }
+    }
+
+    pub fn occupied_by(&self, color: Color) -> u64 {
+        self.pieces[color as usize]
+            .iter()
+            .fold(0, |occupied, &piece_board| occupied | piece_board)
+    }
+
     pub fn occupied_squares(&self) -> u64 {
-        self.white_pawns | self.white_knights | self.white_bishops
-            | self.white_rooks | self.white_queens | self.white_king
-            | self.black_pawns | self.black_knights | self.black_bishops
-            | self.black_rooks | self.black_queens | self.black_king
+        self.occupied_by(Color::White) | self.occupied_by(Color::Black)
     }
 
     pub fn empty_squares(&self) -> u64 {
         !self.occupied_squares()
     }
 
-    pub fn generate_legal_moves(&self) -> Vec<Move> {
-        let mut legal_moves = Vec::new();
-        let temp_legal_moves = self.generate_temp_legal_moves();
+    pub fn king_square(&self, color: Color) -> Option<u8> {
+        let king = self.bitboard(color, Piece::King);
 
-        for i in temp_legal_moves {
-            let mut temp_board = self.clone();
-            temp_board.make_move(i);
-            if !temp_board.in_check(self.white_to_move) {
-                legal_moves.push(i);
-            }
-        }
-        legal_moves
-    }
-
-    fn pawn_moves(&self, moves: &mut Vec<Move>, mut dest: u64, shift: i8) {
-        while dest != 0 {
-            let to = dest.trailing_zeros() as u8;
-            let from = (to as i8 - shift) as u8;
-
-            let rank = to / 8;
-            if rank == 0 || rank == 7 {
-                moves.push(Move{from, to, promotion: Some('q')});
-                moves.push(Move{from, to, promotion: Some('b')});
-                moves.push(Move{from, to, promotion: Some('n')});
-                moves.push(Move{from, to, promotion: Some('r')});
-            }
-            else {
-                moves.push(Move{from, to, promotion: None});
-            }
-
-            dest &= dest - 1;
-        }
-    }
-
-    fn normal_moves(&self, moves: &mut Vec<Move>, mut dest: u64, shift: i8) {
-        while dest != 0 {
-            let to = dest.trailing_zeros() as u8;
-            let from = (to as i8 - shift) as u8;
-            moves.push(Move{from, to, promotion: None});
-            dest &= dest - 1;
-        }
-    }
-
-    fn slider_moves(
-        moves: &mut Vec<Move>,
-        mut pieces: u64,
-        own: u64,
-        enemy: u64,
-        directions: &[(i8, i8)],
-    ) {
-        while pieces != 0 {
-            let from = pieces.trailing_zeros() as i8;
-            pieces &= pieces -1;
-
-            let file = from % 8;
-            let rank = from / 8;
-
-            for &(df, dr) in directions {
-                let mut f = file + df;
-                let mut r = rank + dr;
-
-                while (0..8).contains(&r) && (0..8).contains(&f) {
-                    let to = (r * 8 + f) as u8;
-                    let bit = 1u64 << to;
-
-                    if own & bit != 0 {
-                        break;
-                    }
-
-                    moves.push(Move {
-                        from: from as u8,
-                        to,
-                        promotion: None
-                    });
-
-                    if enemy & bit != 0 {
-                        break;
-                    }
-
-                    f += df;
-                    r += dr;
-                }
-            }
-        }
-    }
-
-    pub fn generate_temp_legal_moves(&self) -> Vec<Move> {
-        let mut moves = Vec::new();
-
-        let white = self.white_pawns | self.white_knights | self.white_bishops | self.white_rooks | self.white_queens | self.white_king;
-        let black = self.black_pawns | self.black_knights | self.black_bishops | self.black_rooks | self.black_queens | self.black_king;
-
-        //pawns :3
-        let not_a: u64 = 0xFEFEFEFEFEFEFEFE;
-        let not_h: u64 = 0x7F7F7F7F7F7F7F7F;
-
-        if self.white_to_move {
-            let pawns = self.white_pawns;
-            let single = (pawns << 8) & self.empty_squares();
-            self.pawn_moves(&mut moves, single, 8);
-
-            let double = (single << 8) & self.empty_squares() & 0x00000000FF000000;
-            self.pawn_moves(&mut moves, double, 16);
-
-            let capture_left = ((pawns & not_a) << 7) & black;
-            self.pawn_moves(&mut moves, capture_left, 7);
-            let capture_right = ((pawns & not_h) << 9) & black;
-            self.pawn_moves(&mut moves, capture_right, 9);
-        }
-        else {
-            let pawns = self.black_pawns;
-
-            let single = (pawns >> 8) & self.empty_squares();
-            self.pawn_moves(&mut moves, single, -8);
-
-            let double = (single >> 8) & self.empty_squares() & 0x000000FF00000000;
-            self.pawn_moves(&mut moves, double, -16);
-
-            let capture_left = ((pawns & not_h) >> 7) & white;
-            self.pawn_moves(&mut moves, capture_left, -7);
-            let capture_right = ((pawns & not_a) >> 9) & white;
-            self.pawn_moves(&mut moves, capture_right, -9);
-        }
-
-        //knights :3
-        let not_ab: u64 = 0xFCFCFCFCFCFCFCFC;
-        let not_gh: u64 = 0x3F3F3F3F3F3F3F3F;
-
-        let (knights, own) = if self.white_to_move {
-            (self.white_knights, white)
-        }
-        else {
-            (self.black_knights, black)
-        };
-        let k1 = ((knights & not_a) << 15) & (!own);
-        self.normal_moves(&mut moves, k1, 15);
-
-        let k2 = ((knights & not_h) << 17) & (!own);
-        self.normal_moves(&mut moves, k2, 17);
-
-        let k3 = ((knights & not_ab) << 6) & (!own);
-        self.normal_moves(&mut moves, k3, 6);
-
-        let k4 = ((knights & not_gh) << 10) & (!own);
-        self.normal_moves(&mut moves, k4, 10);
-
-        let k5 = ((knights & not_h) >> 15) & (!own);
-        self.normal_moves(&mut moves, k5, -15);
-
-        let k6 = ((knights & not_a) >> 17) & (!own);
-        self.normal_moves(&mut moves, k6, -17);
-
-        let k7 = ((knights & not_gh) >> 6) & (!own);
-        self.normal_moves(&mut moves, k7, -6);
-
-        let k8 = ((knights & not_ab) >> 10) & (!own);
-        self.normal_moves(&mut moves, k8, -10);
-
-        let (bishops, rooks, queens, king, own, enemy) = if self.white_to_move {
-            (
-                self.white_bishops,
-                self.white_rooks,
-                self.white_queens,
-                self.white_king,
-                white,
-                black,
-            )
-        } else {
-            (
-                self.black_bishops,
-                self.black_rooks,
-                self.black_queens,
-                self.black_king,
-                black,
-                white,
-            )
-        };
-
-        let diagonal_directions = [
-            (1, 1),
-            (1, -1),
-            (-1, 1),
-            (-1, -1),
-        ];
-
-        let straight_directions = [
-            (1, 0),
-            (0, 1),
-            (-1, 0),
-            (0, -1),
-        ];
-
-        let queen_directions = [
-            (1, 0),
-            (0, 1),
-            (-1, 0),
-            (0, -1),
-            (1, 1),
-            (1, -1),
-            (-1, 1),
-            (-1, -1),
-        ];
-
-        Self::slider_moves(
-            &mut moves,
-            bishops,
-            own,
-            enemy,
-            &diagonal_directions,
-        );
-
-        Self::slider_moves(
-            &mut moves,
-            rooks,
-            own,
-            enemy,
-            &straight_directions,
-        );
-
-        Self::slider_moves(
-            &mut moves,
-            queens,
-            own,
-            enemy,
-            &queen_directions,
-        );
-
-        // king
-        let from = king.trailing_zeros() as i8;
-        let file = from % 8;
-        let rank = from / 8;
-
-        for (df, dr) in queen_directions {
-            let f = file + df;
-            let r = rank + dr;
-
-            if (0..8).contains(&f) && (0..8).contains(&r) {
-                let to = (r * 8 + f) as u8;
-                let bit = 1u64 << to;
-
-                if own & bit == 0 {
-                    moves.push(Move {
-                        from: from as u8,
-                        to,
-                        promotion: None,
-                    })
-                }
-            }
-        }
-
-        moves
-    }
-
-    pub fn make_move(&mut self, i: Move) {
-        let from = 1_u64 << i.from;
-        let to = 1_u64 << i.to;
-
-        //captures
-        self.white_pawns &= !to;
-        self.white_knights &= !to;
-        self.white_bishops &= !to;
-        self.white_rooks &= !to;
-        self.white_queens &= !to;
-        self.white_king &= !to;
-
-        self.black_pawns &= !to;
-        self.black_knights &= !to;
-        self.black_bishops &= !to;
-        self.black_rooks &= !to;
-        self.black_queens &= !to;
-        self.black_king &= !to;
-
-        if (self.white_pawns & from) != 0 {
-            self.white_pawns &= !from;
-            self.white_pawns |= to;
-        }
-        else if (self.white_knights & from) != 0 {
-            self.white_knights &= !from;
-            self.white_knights |= to;
-        }
-        else if (self.white_bishops & from) != 0 {
-            self.white_bishops &= !from;
-            self.white_bishops |= to;
-        }
-        else if (self.white_rooks & from) != 0 {
-            self.white_rooks &= !from;
-            self.white_rooks |= to;
-        }
-        else if (self.white_queens & from) != 0 {
-            self.white_queens &= !from;
-            self.white_queens |= to;
-        }
-        else if (self.white_king & from) != 0 {
-            self.white_king &= !from;
-            self.white_king |= to;
-        }
-
-        else if (self.black_pawns & from) != 0 {
-            self.black_pawns &= !from;
-            self.black_pawns |= to;
-        }
-        else if (self.black_knights & from) != 0 {
-            self.black_knights &= !from;
-            self.black_knights |= to;
-        }
-        else if (self.black_bishops & from) != 0 {
-            self.black_bishops &= !from;
-            self.black_bishops |= to;
-        }
-        else if (self.black_rooks & from) != 0 {
-            self.black_rooks &= !from;
-            self.black_rooks |= to;
-        }
-        else if (self.black_queens & from) != 0 {
-            self.black_queens &= !from;
-            self.black_queens |= to;
-        }
-        else if (self.black_king & from) != 0 {
-            self.black_king &= !from;
-            self.black_king |= to;
-        }
-
-        self.white_to_move = !self.white_to_move;
-    }
-
-    pub fn in_check(&self, white: bool) -> bool {
-        let king = if white { self.white_king } else { self.black_king };
         if king == 0 {
+            None
+        } else {
+            Some(king.trailing_zeros() as u8)
+        }
+    }
+
+    pub fn in_check(&self, color: Color) -> bool {
+        let Some(king_square) = self.king_square(color) else {
             return false;
+        };
+
+        self.is_square_attacked(king_square, color.opposite())
+    }
+
+    pub fn is_square_attacked(&self, square: u8, attacker: Color) -> bool {
+        let king_bit = 1u64 << square;
+        let occupied = self.occupied_squares();
+
+        let enemy_pawns = self.bitboard(attacker, Piece::Pawn);
+        let enemy_knights = self.bitboard(attacker, Piece::Knight);
+        let enemy_bishops = self.bitboard(attacker, Piece::Bishop);
+        let enemy_rooks = self.bitboard(attacker, Piece::Rook);
+        let enemy_queens = self.bitboard(attacker, Piece::Queen);
+        let enemy_king = self.bitboard(attacker, Piece::King);
+
+        // pawns
+        let not_a = 0xFEFEFEFEFEFEFEFEu64; // every square except file a
+        let not_h = 0x7F7F7F7F7F7F7F7Fu64; // every square except file h
+
+        let pawn_attacks = match attacker {
+            Color::White => {
+                ((enemy_pawns & not_a) << 7) | ((enemy_pawns & not_h) << 9)
+            }
+            Color::Black => {
+                ((enemy_pawns & not_h) >> 7) | ((enemy_pawns & not_a) >> 9)
+            }
+        };
+
+        if pawn_attacks & king_bit != 0 {
+            return true;
         }
 
-        let (enemy_pawns, enemy_knights, enemy_bishops, enemy_rooks, enemy_queens, enemy_king) =
-            if white {
-                (
-                    self.black_pawns,
-                    self.black_knights,
-                    self.black_bishops,
-                    self.black_rooks,
-                    self.black_queens,
-                    self.black_king,
-                )
-            } else {
-                (
-                    self.white_pawns,
-                    self.white_knights,
-                    self.white_bishops,
-                    self.white_rooks,
-                    self.white_queens,
-                    self.white_king,
-                )
-            };
-
-        let square = king.trailing_zeros() as i8;
-        let file = square % 8;
-        let rank = square / 8;
-        let occupied = self.occupied_squares();
+        let file = square as i8 % 8;
+        let rank = square as i8 / 8;
 
         // knights
         for (df, dr) in [
@@ -480,20 +243,321 @@ impl Board {
             }
         }
 
-        // pawns
-        let not_a = 0xFEFEFEFEFEFEFEFEu64; // every square except file a
-        let not_h = 0x7F7F7F7F7F7F7F7Fu64; // every square except file h
+        false
+    }
 
-        let pawn_attacks = if white {
-            ((enemy_pawns & not_h) >> 7) | ((enemy_pawns & not_a) >> 9)
-        } else {
-            ((enemy_pawns & not_a) << 7) | ((enemy_pawns & not_h) << 9)
-        };
+    fn piece_at(&self, color: Color, square: u8) -> Option<Piece> {
+        let bit = 1u64 << square;
 
-        if pawn_attacks & king != 0 {
-            return true;
+        for piece in [
+            Piece::Pawn,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Rook,
+            Piece::Queen,
+            Piece::King,
+        ] {
+            if self.bitboard(color, piece) & bit != 0 {
+                return Some(piece);
+            }
         }
 
-        false
+        None
+    }
+
+    fn push_pawn_move(moves: &mut Vec<Move>, from: u8, to: u8) {
+        let rank = to / 8;
+
+        if rank == 0 || rank == 7 {
+            moves.push(Move {
+                from,
+                to,
+                promotion: Some(Piece::Queen),
+            });
+            moves.push(Move {
+                from,
+                to,
+                promotion: Some(Piece::Rook),
+            });
+            moves.push(Move {
+                from,
+                to,
+                promotion: Some(Piece::Bishop),
+            });
+            moves.push(Move {
+                from,
+                to,
+                promotion: Some(Piece::Knight),
+            });
+        } else {
+            moves.push(Move {
+                from,
+                to,
+                promotion: None,
+            });
+        }
+    }
+
+    fn slider_moves(
+        moves: &mut Vec<Move>,
+        mut pieces: u64,
+        own: u64,
+        enemy: u64,
+        enemy_king: u64,
+        directions: &[(i8, i8)],
+    ) {
+        while pieces != 0 {
+            let from = pieces.trailing_zeros() as u8;
+            pieces &= pieces -1;
+
+            let file = from as i8 % 8;
+            let rank = from as i8 / 8;
+
+            for &(df, dr) in directions {
+                let mut f = file + df;
+                let mut r = rank + dr;
+
+                while (0..8).contains(&r) && (0..8).contains(&f) {
+                    let to = (r * 8 + f) as u8;
+                    let bit = 1u64 << to;
+
+                    if own & bit != 0 {
+                        break;
+                    }
+
+                    // enemy king is never eaten
+                    if enemy_king & bit != 0 {
+                        break;
+                    }
+
+                    moves.push(Move {
+                        from: from as u8,
+                        to,
+                        promotion: None
+                    });
+
+                    if enemy & bit != 0 {
+                        break;
+                    }
+
+                    f += df;
+                    r += dr;
+                }
+            }
+        }
+    }
+
+    pub fn generate_pseudo_legal_moves(&self) -> Vec<Move> {
+        let mut moves = Vec::new();
+
+        let side = self.side_to_move;
+        let enemy_side = side.opposite();
+
+        let own = self.occupied_by(side);
+        let enemy = self.occupied_by(enemy_side);
+        let enemy_king = self.bitboard(enemy_side, Piece::King);
+        let occupied = own | enemy;
+
+        // pawns
+        let mut pawns = self.bitboard(side, Piece::Pawn);
+        let direction: i8 = if side == Color::White { 1 } else { -1 };
+        let start_rank: i8 = if side == Color::White { 1 } else { 6 };
+
+        while pawns != 0 {
+            let from = pawns.trailing_zeros() as u8;
+            pawns &= pawns -1;
+
+            let file = from as i8 % 8;
+            let rank = from as i8 / 8;
+
+            let next_rank = rank + direction;
+
+            // one square pawn push
+            if (0..8).contains(&next_rank) {
+                let to = (next_rank * 8 + file) as u8;
+                let bit = 1u64 << to;
+
+                if occupied & bit == 0 {
+                    Self::push_pawn_move(&mut moves, from, to);
+
+                    // two square pawn push
+                    if rank == start_rank {
+                        let double_rank = rank + 2 * direction;
+
+                        if (0..8).contains(&double_rank) {
+                            let double_to = (double_rank * 8 + file) as u8;
+                            let double_bit = 1u64 << double_to;
+
+                            if occupied & double_bit == 0 {
+                                moves.push(Move {
+                                    from,
+                                    to: double_to,
+                                    promotion: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // pawn captures
+            for df in [-1, 1] {
+                let capture_file = file + df;
+                let capture_rank = rank + direction;
+
+                if (0..8).contains(&capture_file) && (0..8).contains(&capture_rank) {
+                    let to = (capture_rank * 8 + capture_file) as u8;
+                    let bit = 1u64 << to;
+
+                    if enemy & bit != 0 && enemy_king & bit == 0 {
+                        Self::push_pawn_move(&mut moves, from, to);
+                    }
+                }
+            }
+        }
+
+        // knights
+        let mut knights = self.bitboard(side, Piece::Knight);
+
+        while knights != 0 {
+            let from = knights.trailing_zeros() as u8;
+            knights &= knights -1;
+
+            let file = from as i8 % 8;
+            let rank = from as i8 / 8;
+
+            for (df, dr) in [
+                (1, 2), (2, 1), (-1, 2), (2, -1),
+                (-2, 1), (1, -2), (-1, -2), (-2, -1),
+            ] {
+                let f = file + df;
+                let r = rank + dr;
+
+                if (0..8).contains(&f) && (0..8).contains(&r) {
+                    let to = (r * 8 + f) as u8;
+                    let bit = 1u64 << to;
+
+                    if own & bit == 0 && enemy_king & bit == 0 {
+                        moves.push(Move {
+                            from,
+                            to,
+                            promotion: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        let diagonals = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
+        let straights = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        let queen_directions = [
+            (1, 1), (1, -1), (-1, 1), (-1, -1),
+            (1, 0), (-1, 0), (0, 1), (0, -1)
+        ];
+
+        // bishop
+        Self::slider_moves(
+            &mut moves,
+            self.bitboard(side, Piece::Bishop),
+            own,
+            enemy,
+            enemy_king,
+            &diagonals,
+        );
+
+        // rook
+        Self::slider_moves(
+            &mut moves,
+            self.bitboard(side, Piece::Rook),
+            own,
+            enemy,
+            enemy_king,
+            &straights,
+        );
+
+        // queen
+        Self::slider_moves(
+            &mut moves,
+            self.bitboard(side, Piece::Queen),
+            own,
+            enemy,
+            enemy_king,
+            &queen_directions,
+        );
+
+        // king
+        if let Some(from) = self.king_square(side) {
+            let file = from as i8 % 8;
+            let rank = from as i8 / 8;
+
+            for (df, dr) in queen_directions {
+                let f = file + df;
+                let r = rank + dr;
+
+                if (0..8).contains(&f) && (0..8).contains(&r) {
+                    let to = (r * 8 + f) as u8;
+                    let bit = 1u64 << to;
+
+                    if own & bit == 0 && enemy_king & bit == 0 {
+                        moves.push(Move {
+                            from,
+                            to,
+                            promotion: None,
+                        })
+                    }
+                }
+            }
+        }
+
+        moves
+    }
+
+    pub fn generate_legal_moves(&self) -> Vec<Move> {
+        let mut legal_moves = Vec::new();
+        let moving_side = self.side_to_move;
+
+        for mv in self.generate_pseudo_legal_moves() {
+            let mut next_board = self.clone();
+            next_board.make_move(mv);
+
+            if !next_board.in_check(moving_side) {
+                legal_moves.push(mv);
+            }
+        }
+
+        legal_moves
+    }
+
+    pub fn make_move(&mut self, mv: Move) {
+        let moving_side = self.side_to_move;
+        let enemy_side = moving_side.opposite();
+
+        let moved_piece = self
+            .piece_at(moving_side, mv.from)
+            .expect("move must start on a piece belonging to the side to move");
+
+        let is_capture = self.piece_at(enemy_side, mv.to).is_some();
+
+        self.clear_square(mv.from);
+        self.clear_square(mv.to);
+
+        let piece_on_destination = mv.promotion.unwrap_or(moved_piece);
+
+        self.pieces[moving_side as usize][piece_on_destination as usize] |= 1u64 << mv.to;
+
+        // NOT IMPLEMENTED YET
+        self.en_passant = None;
+
+        if moved_piece == Piece::Pawn || is_capture {
+            self.halfmove_clock = 0;
+        } else {
+            self.halfmove_clock += 1;
+        }
+
+        if moving_side == Color::Black {
+            self.fullmove_number += 1
+        }
+
+        self.side_to_move = enemy_side;
     }
 }
