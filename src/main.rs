@@ -7,4 +7,6 @@ fn main() {
         "white pawns: {:064b}",
         board.bitboard(Color::White, Piece::Pawn),
     );
+
+    board.perft(6);
 }

@@ -560,4 +560,19 @@ impl Board {
 
         self.side_to_move = enemy_side;
     }
+
+    pub fn perft(&self, depth: u32) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        self.generate_legal_moves()
+            .into_iter()
+            .map(|mv| {
+                let mut next = self.clone();
+                next.make_move(mv);
+                next.perft(depth-1)
+            })
+            .sum()
+    }
 }

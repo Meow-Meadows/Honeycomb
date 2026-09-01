@@ -7,4 +7,9 @@ edition = "2024"
 name = "honeycomb"
 path = "src/lib.rs"
 
+# flamegraph stuff
+[profile.release]
+debug = 1
+strip = "none"
+
 [dependencies]

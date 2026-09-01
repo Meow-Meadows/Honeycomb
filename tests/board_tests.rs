@@ -104,3 +104,47 @@ fn detects_queen_check_on_file() {
 
     assert!(board.in_check(Color::White));
 }
+
+#[test]
+fn starting_position_has_20_legal_moves() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.generate_legal_moves().len(), 20);
+}
+
+#[test]
+fn starting_position_perft_depth_two_is_400() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.perft(2), 400);
+}
+
+#[test]
+fn starting_position_perft_depth_three_is_8902() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.perft(3), 8_902);
+}
+
+#[test]
+fn starting_position_perft_depth_four_is_197281() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.perft(4), 197_281);
+}
+
+#[test]
+fn starting_position_perft_depth_five_is_4_865_609() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.perft(5), 4_865_609);
+}
+
+/*
+#[test] very slow currently and unneeded since the code fails at depth 5
+fn starting_position_perft_depth_six_is_119_060_324() {
+    let board = Board::starting_position();
+
+    assert_eq!(board.perft(5), 119_060_324);
+}
+*/
