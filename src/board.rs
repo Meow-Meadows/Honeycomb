@@ -32,13 +32,26 @@ pub struct Move {
     pub promotion: Option<Piece>,
 }
 
+#[derive(Clone, Copy)]
+pub struct Undo {
+    mv: Move,
+    moving_side: Color,
+    moved_piece: Piece,
+    captured: Option<(Piece, u8)>,
+
+    old_castling_rights: u8,
+    old_en_passant: Option<u8>,
+    old_halfmove_clock: u32,
+    old_fullmove_number: u32,
+}
+
 pub const WHITE_KINGSIDE: u8 = 1;
 pub const WHITE_QUEENSIDE: u8 = 2;
 pub const BLACK_KINGSIDE: u8 = 4;
 pub const BLACK_QUEENSIDE: u8 = 8;
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Board {
     // pieces[colour][piece]
     pieces: [[u64; 6]; 2],
@@ -100,7 +113,7 @@ impl Board {
 
     pub fn set_piece(&mut self, color: Color, piece: Piece, square: u8) {
         self.clear_square(square);
-        self.pieces[color as usize][piece as usize] |= 1u64 << square;
+        self.add_piece(color, piece, square);
     }
 
     pub fn clear_square(&mut self, square: u8) {
@@ -111,6 +124,14 @@ impl Board {
                 self.pieces[color][piece] &= bit;
             }
         }
+    }
+
+    fn add_piece(&mut self, color: Color, piece: Piece, square: u8) {
+        self.pieces[color as usize][piece as usize] |= 1u64 << square;
+    }
+
+    fn remove_piece(&mut self, color: Color, piece: Piece, square: u8) {
+        self.pieces[color as usize][piece as usize] &= !(1u64 << square);
     }
 
     pub fn occupied_by(&self, color: Color) -> u64 {
@@ -347,6 +368,82 @@ impl Board {
         }
     }
 
+    fn add_castling_moves(&self, moves: &mut Vec<Move>) {
+        let side = self.side_to_move;
+        let enemy = side.opposite();
+        let occupied = self.occupied_squares();
+
+        if self.in_check(side) {
+            return;
+        }
+
+        match side {
+            Color::White => {
+                // white kingside: e1 -> g1, rook h1 -> f1
+                if self.castling_rights & WHITE_KINGSIDE != 0
+                    && self.king_square(Color::White) == Some(4)
+                    && self.bitboard(Color::White, Piece::Rook) & (1u64 << 7) != 0
+                    && occupied & ((1u64 << 5) | (1u64 << 6)) == 0
+                    && !self.is_square_attacked(5, enemy)
+                    && !self.is_square_attacked(6, enemy)
+                {
+                    moves.push(Move {
+                        from: 4,
+                        to: 6,
+                        promotion: None,
+                    })
+                }
+
+                // white queenside: e1 -> c1, rook a1 -> d1
+                if self.castling_rights & WHITE_QUEENSIDE != 0
+                    && self.king_square(Color::White) == Some(4)
+                    && self.bitboard(Color::White, Piece::Rook) & ((1u64) << 0) != 0
+                    && occupied & ((1u64 << 1) | (1u64 << 2) | (1u64 << 3)) == 0
+                    && !self.is_square_attacked(3, enemy)
+                    && !self.is_square_attacked(2, enemy)
+                {
+                    moves.push(Move {
+                        from: 4,
+                        to: 2,
+                        promotion: None,
+                    })
+                }
+        }
+
+            Color::Black => {
+                // black kingside: e8 -> g8, rook h8 -> f8
+                if self.castling_rights & BLACK_KINGSIDE != 0
+                    && self.king_square(Color::Black) == Some(60)
+                    && self.bitboard(Color::Black, Piece::Rook) & (1u64 << 63) != 0
+                    && occupied & ((1u64 << 61) | (1u64 << 62)) == 0
+                    && !self.is_square_attacked(61, enemy)
+                    && !self.is_square_attacked(62, enemy)
+                {
+                    moves.push(Move {
+                        from: 60,
+                        to: 62,
+                        promotion: None,
+                    });
+                }
+
+                // black queenside: e8 -> c8, rook a8 -> d8
+                if self.castling_rights & BLACK_QUEENSIDE != 0
+                    && self.king_square(Color::Black) == Some(60)
+                    && self.bitboard(Color::Black, Piece::Rook) & (1u64 << 56) != 0
+                    && occupied & ((1u64 << 57) | (1u64 << 58) | (1u64 << 59)) == 0
+                    && !self.is_square_attacked(59, enemy)
+                    && !self.is_square_attacked(58, enemy)
+                {
+                    moves.push(Move {
+                        from: 60,
+                        to: 58,
+                        promotion: None,
+                    });
+                }
+            }
+        }
+    }
+
     pub fn generate_pseudo_legal_moves(&self) -> Vec<Move> {
         let mut moves = Vec::new();
 
@@ -411,6 +508,22 @@ impl Board {
 
                     if enemy & bit != 0 && enemy_king & bit == 0 {
                         Self::push_pawn_move(&mut moves, from, to);
+                    } else if self.en_passant == Some(to) {
+                        let captured_pawn_square = if side == Color::White {
+                            to - 8
+                        } else {
+                            to + 8
+                        };
+
+                        let captured_pawn_bit = 1u64 << captured_pawn_square;
+
+                        if self.bitboard(enemy_side, Piece::Pawn) & captured_pawn_bit != 0 {
+                            moves.push(Move {
+                                from,
+                                to,
+                                promotion: None,
+                            });
+                        }
                     }
                 }
             }
@@ -509,18 +622,22 @@ impl Board {
             }
         }
 
+        self.add_castling_moves(&mut moves);
+
         moves
     }
 
-    pub fn generate_legal_moves(&self) -> Vec<Move> {
-        let mut legal_moves = Vec::new();
+    pub fn generate_legal_moves(&mut self) -> Vec<Move> {
         let moving_side = self.side_to_move;
+        let mut legal_moves = Vec::new();
 
         for mv in self.generate_pseudo_legal_moves() {
-            let mut next_board = self.clone();
-            next_board.make_move(mv);
+            let undo = self.make_move(mv);
+            let is_legal = !self.in_check(moving_side);
 
-            if !next_board.in_check(moving_side) {
+            self.unmake_move(undo);
+
+            if is_legal {
                 legal_moves.push(mv);
             }
         }
@@ -528,7 +645,7 @@ impl Board {
         legal_moves
     }
 
-    pub fn make_move(&mut self, mv: Move) {
+    pub fn make_move(&mut self, mv: Move) -> Undo {
         let moving_side = self.side_to_move;
         let enemy_side = moving_side.opposite();
 
@@ -536,17 +653,100 @@ impl Board {
             .piece_at(moving_side, mv.from)
             .expect("move must start on a piece belonging to the side to move");
 
-        let is_capture = self.piece_at(enemy_side, mv.to).is_some();
+        let is_en_passant = moved_piece == Piece::Pawn
+            && self.en_passant == Some(mv.to)
+            && mv.from % 8 != mv.to % 8
+            && self.piece_at(enemy_side, mv.to).is_none();
 
-        self.clear_square(mv.from);
-        self.clear_square(mv.to);
+        let is_castle = moved_piece == Piece::King
+            && (mv.from as i8 - mv.to as i8).abs() == 2;
+
+        let captured = if is_en_passant {
+            let captured_square = if moving_side == Color::White {
+                mv.to - 8
+            } else {
+                mv.to + 8
+            };
+
+            Some((Piece::Pawn, captured_square))
+        } else {
+            self.piece_at(enemy_side, mv.to)
+                .map(|piece| (piece, mv.to))
+        };
+
+        let undo = Undo {
+            mv,
+            moving_side,
+            moved_piece,
+            captured,
+            old_castling_rights: self.castling_rights,
+            old_en_passant: self.en_passant,
+            old_halfmove_clock: self.halfmove_clock,
+            old_fullmove_number: self.fullmove_number,
+        };
+
+        let is_capture = captured.is_some();
+
+        if moved_piece == Piece::King {
+            match moving_side {
+                Color::White => {
+                    self.castling_rights &= !(WHITE_KINGSIDE | WHITE_QUEENSIDE);
+                }
+
+                Color::Black => {
+                    self.castling_rights &= !(BLACK_KINGSIDE | BLACK_QUEENSIDE);
+                }
+            }
+        }
+
+        if moved_piece == Piece::Rook {
+            match mv.from {
+                0 => self.castling_rights &= !WHITE_QUEENSIDE,
+                7 => self.castling_rights &= !WHITE_KINGSIDE,
+                56 => self.castling_rights &= !BLACK_QUEENSIDE,
+                63 => self.castling_rights &= !BLACK_KINGSIDE,
+                _ => {}
+            }
+        }
+
+        match mv.to {
+            0 => self.castling_rights &= !WHITE_QUEENSIDE,
+            7 => self.castling_rights &= !WHITE_KINGSIDE,
+            56 => self.castling_rights &= !BLACK_QUEENSIDE,
+            63 => self.castling_rights &= !BLACK_KINGSIDE,
+            _ => {}
+        }
+
+        self.remove_piece(moving_side, moved_piece, mv.from);
+
+        if let Some((captured_piece, captured_square)) = captured {
+            self.remove_piece(enemy_side, captured_piece, captured_square);
+        }
 
         let piece_on_destination = mv.promotion.unwrap_or(moved_piece);
 
-        self.pieces[moving_side as usize][piece_on_destination as usize] |= 1u64 << mv.to;
+        self.add_piece(moving_side, piece_on_destination, mv.to);
 
-        // NOT IMPLEMENTED YET
+        if is_castle {
+            let (rook_from, rook_to) = match mv.to {
+                6 => (7, 5),     // White kingside
+                2 => (0, 3),     // White queenside
+                62 => (63, 61),  // Black kingside
+                58 => (56, 59),  // Black queenside
+                _ => unreachable!("king moved two squares but was not castling"),
+            };
+
+            self.remove_piece(moving_side, Piece::Rook, rook_from);
+            self.add_piece(moving_side, Piece::Rook, rook_to);
+        }
+
         self.en_passant = None;
+
+        if moved_piece == Piece::Pawn
+            && (mv.from as i8 - mv.to as i8).abs() == 16
+        {
+            self.en_passant = Some((mv.to + mv.from) / 2);
+        }
 
         if moved_piece == Piece::Pawn || is_capture {
             self.halfmove_clock = 0;
@@ -555,24 +755,68 @@ impl Board {
         }
 
         if moving_side == Color::Black {
-            self.fullmove_number += 1
+            self.fullmove_number += 1;
         }
 
         self.side_to_move = enemy_side;
+
+        undo
     }
 
-    pub fn perft(&self, depth: u32) -> u64 {
+    pub fn unmake_move(&mut self, undo: Undo) {
+        let mv = undo.mv;
+        let moving_side = undo.moving_side;
+
+        let is_castle = undo.moved_piece == Piece::King
+            && (mv.from as i8 - mv.to as i8).abs() == 2;
+
+        self.side_to_move = moving_side;
+        self.castling_rights = undo.old_castling_rights;
+        self.en_passant = undo.old_en_passant;
+        self.halfmove_clock = undo.old_halfmove_clock;
+        self.fullmove_number = undo.old_fullmove_number;
+
+        let piece_on_destination = mv.promotion.unwrap_or(undo.moved_piece);
+        self.remove_piece(moving_side, piece_on_destination, mv.to);
+        self.add_piece(moving_side, undo.moved_piece, mv.from);
+
+        if is_castle {
+            let (rook_from, rook_to) = match mv.to {
+                6 => (7, 5),
+                2 => (0, 3),
+                62 => (63, 61),
+                58 => (56, 59),
+                _ => unreachable!("king moved two squares but was not castling"),
+            };
+
+            self.remove_piece(moving_side, Piece::Rook, rook_to);
+            self.add_piece(moving_side, Piece::Rook, rook_from);
+        }
+
+        if let Some((captured_piece, captured_square)) = undo.captured {
+            self.add_piece(moving_side.opposite(), captured_piece, captured_square);
+        }
+    }
+
+    pub fn perft(&mut self, depth: u32) -> u64 {
         if depth == 0 {
             return 1;
         }
 
-        self.generate_legal_moves()
-            .into_iter()
-            .map(|mv| {
-                let mut next = self.clone();
-                next.make_move(mv);
-                next.perft(depth-1)
-            })
-            .sum()
+        let moving_side = self.side_to_move;
+        let moves = self.generate_pseudo_legal_moves();
+        let mut nodes = 0;
+
+        for mv in moves {
+            let undo = self.make_move(mv);
+
+            if !self.in_check(moving_side) {
+                nodes += self.perft(depth - 1);
+            }
+
+            self.unmake_move(undo);
+        }
+
+        nodes
     }
 }
