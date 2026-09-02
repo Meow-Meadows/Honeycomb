@@ -1,4 +1,4 @@
-use crate::{Board, Color, Move, Piece};
+use crate::board::{Board, Color, Move, Piece};
 
 const PAWN_VALUE: i32 = 100;
 const KNIGHT_VALUE: i32 = 320;
