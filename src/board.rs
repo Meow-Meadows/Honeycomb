@@ -50,7 +50,6 @@ pub const WHITE_QUEENSIDE: u8 = 2;
 pub const BLACK_KINGSIDE: u8 = 4;
 pub const BLACK_QUEENSIDE: u8 = 8;
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Board {
     // pieces[colour][piece]
@@ -97,10 +96,7 @@ impl Board {
             ],
 
             side_to_move: Color::White,
-            castling_rights: WHITE_KINGSIDE
-                | WHITE_QUEENSIDE
-                | BLACK_KINGSIDE
-                | BLACK_QUEENSIDE,
+            castling_rights: WHITE_KINGSIDE | WHITE_QUEENSIDE | BLACK_KINGSIDE | BLACK_QUEENSIDE,
             en_passant: None,
             halfmove_clock: 0,
             fullmove_number: 1,
@@ -182,12 +178,8 @@ impl Board {
         let not_h = 0x7F7F7F7F7F7F7F7Fu64; // every square except file h
 
         let pawn_attacks = match attacker {
-            Color::White => {
-                ((enemy_pawns & not_a) << 7) | ((enemy_pawns & not_h) << 9)
-            }
-            Color::Black => {
-                ((enemy_pawns & not_h) >> 7) | ((enemy_pawns & not_a) >> 9)
-            }
+            Color::White => ((enemy_pawns & not_a) << 7) | ((enemy_pawns & not_h) << 9),
+            Color::Black => ((enemy_pawns & not_h) >> 7) | ((enemy_pawns & not_a) >> 9),
         };
 
         if pawn_attacks & king_bit != 0 {
@@ -199,8 +191,14 @@ impl Board {
 
         // knights
         for (df, dr) in [
-            (1, 2), (2, 1), (2, -1), (1, -2),
-            (-1, -2), (-2, -1), (-2, 1), (-1, 2),
+            (1, 2),
+            (2, 1),
+            (2, -1),
+            (1, -2),
+            (-1, -2),
+            (-2, -1),
+            (-2, 1),
+            (-1, 2),
         ] {
             let f = file + df;
             let r = rank + dr;
@@ -217,22 +215,23 @@ impl Board {
         for df in -1..=1 {
             for dr in -1..=1 {
                 if df == 0 && dr == 0 {
-                    continue
+                    continue;
                 }
 
                 let f = file + df;
                 let r = rank + dr;
 
-                if (0..8).contains(&f) && (0..8).contains(&r) {
-                    if enemy_king & (1u64 << (r * 8 + f)) != 0 {
-                        return true;
-                    }
+                if (0..8).contains(&f)
+                    && (0..8).contains(&r)
+                    && enemy_king & (1u64 << (r * 8 + f)) != 0
+                {
+                    return true;
                 }
             }
         }
 
         // first piece found on each ray either attacks king or blocks ray
-        let ray_attacked = |df : i8, dr : i8, attackers: u64| {
+        let ray_attacked = |df: i8, dr: i8, attackers: u64| {
             let mut f = file + df;
             let mut r = rank + dr;
 
@@ -260,7 +259,7 @@ impl Board {
         let straight_attackers = enemy_rooks | enemy_queens;
         for (df, dr) in [(1, 0), (0, 1), (-1, 0), (0, -1)] {
             if ray_attacked(df, dr, straight_attackers) {
-                return true
+                return true;
             }
         }
 
@@ -270,20 +269,16 @@ impl Board {
     fn piece_at(&self, color: Color, square: u8) -> Option<Piece> {
         let bit = 1u64 << square;
 
-        for piece in [
+        [
             Piece::Pawn,
             Piece::Knight,
             Piece::Bishop,
             Piece::Rook,
             Piece::Queen,
             Piece::King,
-        ] {
-            if self.bitboard(color, piece) & bit != 0 {
-                return Some(piece);
-            }
-        }
-
-        None
+        ]
+        .into_iter()
+        .find(|&piece| self.bitboard(color, piece) & bit != 0)
     }
 
     fn push_pawn_move(moves: &mut Vec<Move>, from: u8, to: u8) {
@@ -329,7 +324,7 @@ impl Board {
     ) {
         while pieces != 0 {
             let from = pieces.trailing_zeros() as u8;
-            pieces &= pieces -1;
+            pieces &= pieces - 1;
 
             let file = from as i8 % 8;
             let rank = from as i8 / 8;
@@ -352,9 +347,9 @@ impl Board {
                     }
 
                     moves.push(Move {
-                        from: from as u8,
+                        from,
                         to,
-                        promotion: None
+                        promotion: None,
                     });
 
                     if enemy & bit != 0 {
@@ -408,7 +403,7 @@ impl Board {
                         promotion: None,
                     })
                 }
-        }
+            }
 
             Color::Black => {
                 // black kingside: e8 -> g8, rook h8 -> f8
@@ -462,7 +457,7 @@ impl Board {
 
         while pawns != 0 {
             let from = pawns.trailing_zeros() as u8;
-            pawns &= pawns -1;
+            pawns &= pawns - 1;
 
             let file = from as i8 % 8;
             let rank = from as i8 / 8;
@@ -509,11 +504,8 @@ impl Board {
                     if enemy & bit != 0 && enemy_king & bit == 0 {
                         Self::push_pawn_move(&mut moves, from, to);
                     } else if self.en_passant == Some(to) {
-                        let captured_pawn_square = if side == Color::White {
-                            to - 8
-                        } else {
-                            to + 8
-                        };
+                        let captured_pawn_square =
+                            if side == Color::White { to - 8 } else { to + 8 };
 
                         let captured_pawn_bit = 1u64 << captured_pawn_square;
 
@@ -534,14 +526,20 @@ impl Board {
 
         while knights != 0 {
             let from = knights.trailing_zeros() as u8;
-            knights &= knights -1;
+            knights &= knights - 1;
 
             let file = from as i8 % 8;
             let rank = from as i8 / 8;
 
             for (df, dr) in [
-                (1, 2), (2, 1), (-1, 2), (2, -1),
-                (-2, 1), (1, -2), (-1, -2), (-2, -1),
+                (1, 2),
+                (2, 1),
+                (-1, 2),
+                (2, -1),
+                (-2, 1),
+                (1, -2),
+                (-1, -2),
+                (-2, -1),
             ] {
                 let f = file + df;
                 let r = rank + dr;
@@ -564,8 +562,14 @@ impl Board {
         let diagonals = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
         let straights = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         let queen_directions = [
-            (1, 1), (1, -1), (-1, 1), (-1, -1),
-            (1, 0), (-1, 0), (0, 1), (0, -1)
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
         ];
 
         // bishop
@@ -658,8 +662,7 @@ impl Board {
             && mv.from % 8 != mv.to % 8
             && self.piece_at(enemy_side, mv.to).is_none();
 
-        let is_castle = moved_piece == Piece::King
-            && (mv.from as i8 - mv.to as i8).abs() == 2;
+        let is_castle = moved_piece == Piece::King && (mv.from as i8 - mv.to as i8).abs() == 2;
 
         let captured = if is_en_passant {
             let captured_square = if moving_side == Color::White {
@@ -670,8 +673,7 @@ impl Board {
 
             Some((Piece::Pawn, captured_square))
         } else {
-            self.piece_at(enemy_side, mv.to)
-                .map(|piece| (piece, mv.to))
+            self.piece_at(enemy_side, mv.to).map(|piece| (piece, mv.to))
         };
 
         let undo = Undo {
@@ -729,10 +731,10 @@ impl Board {
 
         if is_castle {
             let (rook_from, rook_to) = match mv.to {
-                6 => (7, 5),     // White kingside
-                2 => (0, 3),     // White queenside
-                62 => (63, 61),  // Black kingside
-                58 => (56, 59),  // Black queenside
+                6 => (7, 5),    // White kingside
+                2 => (0, 3),    // White queenside
+                62 => (63, 61), // Black kingside
+                58 => (56, 59), // Black queenside
                 _ => unreachable!("king moved two squares but was not castling"),
             };
 
@@ -742,9 +744,7 @@ impl Board {
 
         self.en_passant = None;
 
-        if moved_piece == Piece::Pawn
-            && (mv.from as i8 - mv.to as i8).abs() == 16
-        {
+        if moved_piece == Piece::Pawn && (mv.from as i8 - mv.to as i8).abs() == 16 {
             self.en_passant = Some((mv.to + mv.from) / 2);
         }
 
@@ -767,8 +767,7 @@ impl Board {
         let mv = undo.mv;
         let moving_side = undo.moving_side;
 
-        let is_castle = undo.moved_piece == Piece::King
-            && (mv.from as i8 - mv.to as i8).abs() == 2;
+        let is_castle = undo.moved_piece == Piece::King && (mv.from as i8 - mv.to as i8).abs() == 2;
 
         self.side_to_move = moving_side;
         self.castling_rights = undo.old_castling_rights;

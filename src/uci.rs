@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, Write};
+use std::{
+    io::{self, BufRead, Write},
+    time::Duration,
+};
 
 use crate::{
     board::{Board, Move, Piece},
@@ -8,7 +11,8 @@ use crate::{
 fn square(s: &str) -> Option<u8> {
     let bytes = s.as_bytes();
 
-    if bytes.len() != 2 || !(b'a'..=b'h').contains(&bytes[0]) || !(b'1'..=b'8').contains(&bytes[1]) {
+    if bytes.len() != 2 || !(b'a'..=b'h').contains(&bytes[0]) || !(b'1'..=b'8').contains(&bytes[1])
+    {
         return None;
     }
 
@@ -63,19 +67,26 @@ fn move_to_uci(mv: Move) -> String {
 
 pub fn run() {
     let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+
+    run_with(stdin.lock(), &mut stdout);
+}
+
+fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
     let mut board = Board::starting_position();
 
-    for line in stdin.lock().lines() {
+    for line in input.lines() {
         let Ok(line) = line else { break };
         let fields: Vec<&str> = line.split_whitespace().collect();
 
         match fields.as_slice() {
             ["uci"] => {
-                println!("id name honeycombee");
-                println!("id author Leon Mamic, Zoe Posokhova");
-                println!("uciok");
+                writeln!(output, "id name honeycombee").expect("UCI output failed");
+                writeln!(output, "id author Leon Mamic, Zoe Posokhova").expect("UCI output failed");
+                writeln!(output, "uciok").expect("UCI output failed");
             }
-            ["isready"] => println!("readyok"),
+            ["isready"] => writeln!(output, "readyok").expect("UCI output failed"),
             ["ucinewgame"] => board = Board::starting_position(),
 
             ["position", "startpos", rest @ ..] => {
@@ -99,16 +110,50 @@ pub fn run() {
                     .and_then(|pair| pair[1].parse().ok())
                     .unwrap_or(3);
 
-                match find_best_move(&mut board, depth) {
-                    Some(mv) => println!("bestmove {}", move_to_uci(mv)),
-                    None => print!("bestmove 0000"),
+                match find_best_move(&mut board, depth, Duration::from_secs(1)) {
+                    Some(mv) => writeln!(output, "bestmove {}", move_to_uci(mv)),
+                    None => writeln!(output, "bestmove 0000"),
                 }
+                .expect("UCI output failed");
             }
 
             ["quit"] => break,
             _ => {}
         }
 
-        io::stdout().flush().expect("stdout flush failed");
+        output.flush().expect("UCI output flush failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::{parse_move, run_with};
+    use crate::board::Board;
+
+    #[test]
+    fn uci_transcript_reports_ready_and_a_legal_best_move() {
+        let input =
+            Cursor::new("uci\nisready\nposition startpos moves e2e4 e7e5\ngo depth 1\nquit\n");
+        let mut output = Vec::new();
+
+        run_with(input, &mut output);
+
+        let output = String::from_utf8(output).expect("UCI output must be UTF-8");
+        assert!(output.contains("uciok\n"));
+        assert!(output.contains("readyok\n"));
+
+        let best_move = output
+            .lines()
+            .find_map(|line| line.strip_prefix("bestmove "))
+            .expect("go must return a bestmove");
+        let mut board = Board::starting_position();
+        for text in ["e2e4", "e7e5"] {
+            let mv = parse_move(&mut board, text).expect("setup move must be legal");
+            board.make_move(mv);
+        }
+
+        assert!(parse_move(&mut board, best_move).is_some());
     }
 }

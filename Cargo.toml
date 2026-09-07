@@ -1,15 +1,21 @@
 [package]
-name = "Honeycomb"
+name = "honeycomb"
 version = "0.1.0"
 edition = "2024"
+description = "A UCI-compatible chess engine written from scratch in Rust"
+repository = "https://github.com/Meow-Meadows/Honeycomb"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+keywords = ["chess", "chess-engine", "uci", "bitboard"]
+categories = ["games"]
 
 [lib]
 name = "honeycomb"
 path = "src/lib.rs"
 
-# flamegraph stuff
-[profile.release]
-debug = 1
+[profile.profiling]
+inherits = "release"
+debug = true
 strip = "none"
 
 [dependencies]

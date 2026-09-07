@@ -240,7 +240,6 @@ fn promotion_replaces_pawn_with_selected_piece() {
     assert_eq!(board.bitboard(Color::White, Piece::Queen), 1u64 << 60);
 }
 
-
 #[test]
 fn unmake_restores_en_passant_capture() {
     let mut board = empty_board();

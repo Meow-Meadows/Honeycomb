@@ -7,18 +7,13 @@ const ROOK_VALUE: i32 = 500;
 const QUEEN_VALUE: i32 = 900;
 const CHECKMATE_SCORE: i32 = 100_000;
 
-pub struct search_context {
+pub struct SearchContext {
     pub deadline: Instant,
     pub nodes: u64,
 }
-impl search_context {
+impl SearchContext {
     pub fn is_time_up(&mut self) -> bool {
-        if self.nodes % 1024 == 0 && Instant::now() >= self.deadline {
-            true
-        }
-        else {
-            false
-        }
+        self.nodes.is_multiple_of(1024) && Instant::now() >= self.deadline
     }
 }
 
@@ -45,8 +40,13 @@ pub fn evaluate(board: &Board) -> i32 {
     }
 }
 
-pub fn alpha_beta(board: &mut Board, depth: u32, mut alpha: i32, beta: i32, ctx: &mut search_context) -> Option<i32> {
-
+pub fn alpha_beta(
+    board: &mut Board,
+    depth: u32,
+    mut alpha: i32,
+    beta: i32,
+    ctx: &mut SearchContext,
+) -> Option<i32> {
     ctx.nodes += 1;
     if ctx.is_time_up() {
         return None;
@@ -91,7 +91,7 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
         return None;
     }
 
-    let mut ctx = search_context {
+    let mut ctx = SearchContext {
         deadline: Instant::now() + limit,
         nodes: 0,
     };
@@ -113,11 +113,11 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
             match res {
                 Some(score) => {
                     if (-score) > curr_best_score {
-                        curr_best_score = (-score);
+                        curr_best_score = -score;
                         curr_best_move = Some(mv);
                     }
                     if (-score) > alpha {
-                        alpha = (-score);
+                        alpha = -score;
                     }
                 }
                 None => {
@@ -128,8 +128,7 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
         }
         if completed_depth {
             best_move = curr_best_move;
-        }
-        else {
+        } else {
             break;
         }
         if ctx.is_time_up() {
@@ -140,7 +139,6 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
     //let mut best_score = i32::MIN + 1;
     //let mut alpha = i32::MIN + 1;
     //let beta = i32::MAX;
-
 
     best_move
 }
