@@ -1,10 +1,10 @@
-use std::{
-    io::{self, BufRead, Write},
-    time::Duration,
-};
 use crate::{
     board::{Board, Color, Move, Piece},
     search::find_best_move,
+};
+use std::{
+    io::{self, BufRead, Write},
+    time::Duration,
 };
 
 const MAX_SEARCH_DEPTH: u32 = 64;
