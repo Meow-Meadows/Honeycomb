@@ -2,11 +2,13 @@ use std::{
     io::{self, BufRead, Write},
     time::Duration,
 };
-
 use crate::{
-    board::{Board, Move, Piece},
+    board::{Board, Color, Move, Piece},
     search::find_best_move,
 };
+
+const MAX_SEARCH_DEPTH: u32 = 64;
+const MOVE_OVERHEAD_MS: u64 = 200;
 
 fn square(s: &str) -> Option<u8> {
     let bytes = s.as_bytes();
@@ -65,6 +67,34 @@ fn move_to_uci(mv: Move) -> String {
     result
 }
 
+fn go_time_limit(board: &Board, fields: &[&str]) -> Duration {
+    let values_after = |name: &str| {
+        fields
+            .windows(2)
+            .find(|pair| pair[0] == name)
+            .and_then(|pair| pair[1].parse::<u64>().ok())
+    };
+
+    let (remaining, increment) = match board.side_to_move {
+        Color::White => (values_after("wtime"), values_after("winc")),
+        Color::Black => (values_after("btime"), values_after("binc")),
+    };
+
+    let Some(remaining) = remaining else {
+        return Duration::from_secs(1);
+    };
+
+    let increment = increment.unwrap_or(0);
+
+    // spend 1/30 of our time and most of the increment
+    let prefered = remaining / 30 + increment * 3 / 4;
+
+    let maximum_safe = remaining.saturating_sub(MOVE_OVERHEAD_MS).max(1);
+    let budget = prefered.clamp(1, maximum_safe);
+
+    Duration::from_millis(budget)
+}
+
 pub fn run() {
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -108,9 +138,11 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
                     .windows(2)
                     .find(|pair| pair[0] == "depth")
                     .and_then(|pair| pair[1].parse().ok())
-                    .unwrap_or(3);
+                    .unwrap_or(MAX_SEARCH_DEPTH);
 
-                match find_best_move(&mut board, depth, Duration::from_secs(1)) {
+                let time_limit = go_time_limit(&board, rest);
+
+                match find_best_move(&mut board, depth, time_limit) {
                     Some(mv) => writeln!(output, "bestmove {}", move_to_uci(mv)),
                     None => writeln!(output, "bestmove 0000"),
                 }
