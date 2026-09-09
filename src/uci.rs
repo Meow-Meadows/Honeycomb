@@ -159,10 +159,53 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{io::Cursor, time::Duration};
 
-    use super::{parse_move, run_with};
+    use super::{go_time_limit, parse_move, run_with};
     use crate::board::Board;
+
+    #[test]
+    fn time_limit_uses_white_clock_and_increment() {
+        let board = Board::starting_position();
+        let fields = [
+            "wtime", "300000", "btime", "10000", "winc", "3000", "binc", "0",
+        ];
+
+        assert_eq!(
+            go_time_limit(&board, &fields),
+            Duration::from_millis(12_250)
+        );
+    }
+
+    #[test]
+    fn time_limit_uses_black_clock_and_increment() {
+        let mut board = Board::starting_position();
+        let first_move = parse_move(&mut board, "e2e4").expect("e2e4 must be legal");
+        board.make_move(first_move);
+        let fields = [
+            "wtime", "300000", "btime", "10000", "winc", "3000", "binc", "2000",
+        ];
+
+        assert_eq!(go_time_limit(&board, &fields), Duration::from_millis(1_833));
+    }
+
+    #[test]
+    fn time_limit_reserves_overhead_when_the_clock_is_low() {
+        let board = Board::starting_position();
+        let fields = ["wtime", "100", "winc", "10000"];
+
+        assert_eq!(go_time_limit(&board, &fields), Duration::from_millis(1));
+    }
+
+    #[test]
+    fn time_limit_falls_back_to_one_second_without_a_clock() {
+        let board = Board::starting_position();
+
+        assert_eq!(
+            go_time_limit(&board, &["depth", "7"]),
+            Duration::from_secs(1)
+        );
+    }
 
     #[test]
     fn uci_transcript_reports_ready_and_a_legal_best_move() {
