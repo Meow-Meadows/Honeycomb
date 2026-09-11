@@ -1,4 +1,5 @@
 use crate::board::{Board, Color, Move, Piece};
+use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 const PAWN_VALUE: i32 = 100;
 const KNIGHT_VALUE: i32 = 320;
@@ -40,6 +41,46 @@ pub fn evaluate(board: &Board) -> i32 {
     }
 }
 
+fn piece_value(piece: Piece) -> i32 {
+    match piece {
+        Piece::Pawn => PAWN_VALUE,
+        Piece::Knight => KNIGHT_VALUE,
+        Piece::Bishop => BISHOP_VALUE,
+        Piece::Rook => ROOK_VALUE,
+        Piece::Queen => QUEEN_VALUE,
+        Piece::King => 20_000,
+    }
+}
+
+fn move_order_score(board: &Board, mv: Move) -> i32 {
+    let us = board.side_to_move;
+    let enemy = us.opposite();
+
+    let moving_piece = board
+        .piece_at(us, mv.from)
+        .expect("a legal move must have a moving piece");
+
+    let mut score = 0;
+
+    if let Some(captured_piece) = board.piece_at(enemy, mv.to) {
+        score += 10_000 + 10 * piece_value(captured_piece) - piece_value(moving_piece);
+    }
+
+    if let Some(promoted_piece) = mv.promotion {
+        score += 20_000 + piece_value(promoted_piece);
+    }
+
+    score
+}
+
+fn ordered_legal_moves(board: &mut Board) -> Vec<Move> {
+    let mut moves = board.generate_legal_moves();
+
+    moves.sort_unstable_by_key(|&mv| Reverse(move_order_score(board, mv)));
+
+    moves
+}
+
 pub fn alpha_beta(
     board: &mut Board,
     depth: u32,
@@ -56,7 +97,7 @@ pub fn alpha_beta(
         return Some(evaluate(board));
     }
 
-    let legal_moves = board.generate_legal_moves();
+    let legal_moves = ordered_legal_moves(board);
 
     if legal_moves.is_empty() {
         if board.in_check(board.side_to_move) {
@@ -86,7 +127,7 @@ pub fn alpha_beta(
     Some(alpha)
 }
 pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<Move> {
-    let moves = board.generate_legal_moves();
+    let moves = ordered_legal_moves(board);
     if moves.is_empty() {
         return None;
     }

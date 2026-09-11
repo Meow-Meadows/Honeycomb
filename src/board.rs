@@ -266,7 +266,7 @@ impl Board {
         false
     }
 
-    fn piece_at(&self, color: Color, square: u8) -> Option<Piece> {
+    pub fn piece_at(&self, color: Color, square: u8) -> Option<Piece> {
         let bit = 1u64 << square;
 
         [
