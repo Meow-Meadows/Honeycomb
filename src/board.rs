@@ -63,7 +63,6 @@ pub struct Board {
 }
 
 impl Board {
-
     pub fn from_fen(fen: &str) -> Option<Self> {
         let mut parts = fen.split_whitespace();
         let piece_placement = parts.next()?;
@@ -95,10 +94,18 @@ impl Board {
                     let bit = 1u64 << square;
 
                     let (color_index, piece_index) = match other {
-                        'P' => (0, 0), 'N' => (0, 1), 'B' => (0, 2),
-                        'R' => (0, 3), 'Q' => (0, 4), 'K' => (0, 5),
-                        'p' => (1, 0), 'n' => (1, 1), 'b' => (1, 2),
-                        'r' => (1, 3), 'q' => (1, 4), 'k' => (1, 5),
+                        'P' => (0, 0),
+                        'N' => (0, 1),
+                        'B' => (0, 2),
+                        'R' => (0, 3),
+                        'Q' => (0, 4),
+                        'K' => (0, 5),
+                        'p' => (1, 0),
+                        'n' => (1, 1),
+                        'b' => (1, 2),
+                        'r' => (1, 3),
+                        'q' => (1, 4),
+                        'k' => (1, 5),
                         _ => return None,
                     };
 
@@ -108,7 +115,7 @@ impl Board {
             }
         }
 
-        if (rank != 0 || file != 8) {
+        if rank != 0 || file != 8 {
             return None;
         }
 
@@ -132,10 +139,9 @@ impl Board {
 
         if en_passant == "-" {
             board.en_passant = None;
-        }
-        else {
+        } else {
             let bytes = en_passant.as_bytes();
-            if (bytes.len() != 2) {
+            if bytes.len() != 2 {
                 return None;
             }
             let file_letter = match bytes[0] {
