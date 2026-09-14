@@ -63,6 +63,99 @@ pub struct Board {
 }
 
 impl Board {
+
+    pub fn from_fen(fen: &str) -> Option<Self> {
+        let mut parts = fen.split_whitespace();
+        let piece_placement = parts.next()?;
+        let side_to_move = parts.next()?;
+        let castling_rights = parts.next()?;
+        let en_passant = parts.next()?;
+        let halfmove_clock = parts.next().unwrap_or("0");
+        let fullmove_number = parts.next().unwrap_or("1");
+
+        let mut board = Self::empty();
+
+        let mut rank = 7i8;
+        let mut file = 0i8;
+
+        for ch in piece_placement.chars() {
+            match ch {
+                '/' => {
+                    rank -= 1;
+                    file = 0;
+                }
+                '1'..='8' => {
+                    file += ch.to_digit(10)? as i8;
+                }
+                other => {
+                    if rank < 0 || file > 7 {
+                        return None;
+                    }
+                    let square = (rank * 8 + file) as u8;
+                    let bit = 1u64 << square;
+
+                    let (color_index, piece_index) = match other {
+                        'P' => (0, 0), 'N' => (0, 1), 'B' => (0, 2),
+                        'R' => (0, 3), 'Q' => (0, 4), 'K' => (0, 5),
+                        'p' => (1, 0), 'n' => (1, 1), 'b' => (1, 2),
+                        'r' => (1, 3), 'q' => (1, 4), 'k' => (1, 5),
+                        _ => return None,
+                    };
+
+                    board.pieces[color_index][piece_index] |= bit;
+                    file += 1;
+                }
+            }
+        }
+
+        if (rank != 0 || file != 8) {
+            return None;
+        }
+
+        board.side_to_move = match side_to_move {
+            "w" => Color::White,
+            "b" => Color::Black,
+            _ => return None,
+        };
+
+        if castling_rights != "-" {
+            for ch in castling_rights.chars() {
+                match ch {
+                    'K' => board.castling_rights |= WHITE_KINGSIDE,
+                    'Q' => board.castling_rights |= WHITE_QUEENSIDE,
+                    'k' => board.castling_rights |= BLACK_KINGSIDE,
+                    'q' => board.castling_rights |= BLACK_QUEENSIDE,
+                    _ => return None,
+                }
+            }
+        }
+
+        if en_passant == "-" {
+            board.en_passant = None;
+        }
+        else {
+            let bytes = en_passant.as_bytes();
+            if (bytes.len() != 2) {
+                return None;
+            }
+            let file_letter = match bytes[0] {
+                b'a'..=b'h' => bytes[0] - b'a',
+                _ => return None,
+            };
+            let ep_rank = match bytes[1] {
+                b'3' => 2,
+                b'6' => 5,
+                _ => return None,
+            };
+            board.en_passant = Some(ep_rank * 8 + file_letter);
+        }
+
+        board.halfmove_clock = halfmove_clock.parse().ok()?;
+        board.fullmove_number = fullmove_number.parse().ok()?;
+
+        Some(board)
+    }
+
     pub fn empty() -> Self {
         Self {
             pieces: [[0; 6]; 2],
