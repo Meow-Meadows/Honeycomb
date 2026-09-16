@@ -13,6 +13,10 @@ categories = ["games"]
 name = "honeycomb"
 path = "src/lib.rs"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [profile.profiling]
 inherits = "release"
 debug = true
