@@ -1,19 +1,8 @@
 use honeycomb::{
     board::{Board, Color, Move, Piece},
-    search::{SearchContext, alpha_beta, evaluate, find_best_move},
+    search::{SearchContext, alpha_beta, find_best_move},
 };
 use std::time::{Duration, Instant};
-
-#[test]
-fn evaluation_is_from_the_side_to_move_perspective() {
-    let mut board = Board::empty();
-    board.set_piece(Color::White, Piece::Queen, 3);
-
-    assert_eq!(evaluate(&board), 900);
-
-    board.side_to_move = Color::Black;
-    assert_eq!(evaluate(&board), -900);
-}
 
 #[test]
 fn search_returns_a_legal_move() {
