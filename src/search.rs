@@ -1,4 +1,4 @@
-use crate::board::{Board, Move};
+use crate::board::{Board, Move, Piece};
 use crate::eval::{evaluate, piece_value};
 use std::cmp::Reverse;
 use std::time::{Duration, Instant};
@@ -43,6 +43,72 @@ fn ordered_legal_moves(board: &mut Board) -> Vec<Move> {
     moves
 }
 
+fn quiescence(
+    board: &mut Board,
+    mut alpha: i32,
+    beta: i32,
+    ctx: &mut SearchContext,
+    qply: u32,
+) -> Option<i32> {
+    ctx.nodes += 1;
+
+    if ctx.is_time_up() {
+        return None;
+    }
+
+    let in_check = board.in_check(board.side_to_move);
+    let legal_moves = ordered_legal_moves(board);
+
+    if legal_moves.is_empty() {
+        return Some(if in_check { -CHECKMATE_SCORE } else { 0 });
+    }
+
+    if qply >= 128 {
+        return None;
+    }
+
+    if !in_check {
+        let stand_pat = evaluate(board);
+
+        if stand_pat >= beta {
+            return Some(beta);
+        }
+
+        alpha = alpha.max(stand_pat);
+    }
+
+    let us = board.side_to_move;
+    let enemy = us.opposite();
+
+    for mv in legal_moves {
+        let is_capture = board.piece_at(enemy, mv.to).is_some();
+
+        let is_en_passant = board.piece_at(us, mv.from) == Some(Piece::Pawn)
+            && board.en_passant == Some(mv.to)
+            && mv.from % 8 != mv.to % 8;
+
+        let is_promotion = mv.promotion.is_some();
+
+        if !in_check && !is_capture && !is_en_passant && !is_promotion {
+            continue;
+        }
+
+        let undo = board.make_move(mv);
+        let result = quiescence(board, -beta, -alpha, ctx, qply + 1);
+        board.unmake_move(undo);
+
+        let score = -result?;
+
+        if score >= beta {
+            return Some(beta);
+        }
+
+        alpha = alpha.max(score);
+    }
+
+    Some(alpha)
+}
+
 pub fn alpha_beta(
     board: &mut Board,
     depth: u32,
@@ -50,6 +116,10 @@ pub fn alpha_beta(
     beta: i32,
     ctx: &mut SearchContext,
 ) -> Option<i32> {
+    if depth == 0 {
+        return quiescence(board, alpha, beta, ctx, 0);
+    }
+
     ctx.nodes += 1;
     if ctx.is_time_up() {
         return None;
@@ -58,18 +128,11 @@ pub fn alpha_beta(
     let legal_moves = ordered_legal_moves(board);
 
     if legal_moves.is_empty() {
-        if board.in_check(board.side_to_move) {
-            //checkmate rahh
-            return Some(-CHECKMATE_SCORE - (depth as i32));
+        return Some(if board.in_check(board.side_to_move) {
+            -CHECKMATE_SCORE
         } else {
-            //stalemate
-            return Some(0);
-        }
-    }
-
-    // Terminal positions must be recognized even at the search horizon.
-    if depth == 0 {
-        return Some(evaluate(board));
+            0
+        });
     }
 
     for mv in legal_moves {
@@ -100,7 +163,7 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
         nodes: 0,
     };
 
-    let mut best_move = None;
+    let mut best_move = moves.first().copied();
 
     for curr_depth in 1..=depth {
         let mut curr_best_move = None;
