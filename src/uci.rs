@@ -119,17 +119,43 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
             ["isready"] => writeln!(output, "readyok").expect("UCI output failed"),
             ["ucinewgame"] => board = Board::starting_position(),
 
-            ["position", "startpos", rest @ ..] => {
-                board = Board::starting_position();
+            ["position", rest @ ..] => {
+                let move_index = rest
+                    .iter()
+                    .position(|&part| part == "moves")
+                    .unwrap_or(rest.len());
 
-                if let Some(move_index) = rest.iter().position(|&part| part == "moves") {
+                let position = &rest[..move_index];
+
+                let parsed = match position {
+                    ["startpos"] => Some(Board::starting_position()),
+                    ["fen", fen_fields @ ..] if fen_fields.len() == 6 => {
+                        Board::from_fen(&fen_fields.join(" "))
+                    }
+                    _ => None,
+                };
+
+                let Some(mut new_board) = parsed else {
+                    eprintln!("invalid UCI position");
+                    continue;
+                };
+
+                let mut valid = true;
+
+                if move_index < rest.len() {
                     for text in &rest[move_index + 1..] {
-                        let Some(mv) = parse_move(&mut board, text) else {
+                        let Some(mv) = parse_move(&mut new_board, text) else {
                             eprintln!("invalid UCI move: {text}");
+                            valid = false;
                             break;
                         };
-                        board.make_move(mv);
+
+                        new_board.make_move(mv);
                     }
+                }
+
+                if valid {
+                    board = new_board;
                 }
             }
 
