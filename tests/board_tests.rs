@@ -296,3 +296,151 @@ fn unmake_restores_promotion() {
 
     assert_eq!(board, before);
 }
+
+#[test]
+fn fen_starting_position_matches_constructor() {
+    assert_eq!(
+        Board::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+        Some(Board::starting_position())
+    );
+}
+
+#[test]
+fn fen_preserves_position_and_metadata() {
+    let mut expected = Board::empty();
+    expected.set_piece(Color::White, Piece::King, 4);
+    expected.set_piece(Color::Black, Piece::King, 60);
+    expected.set_piece(Color::White, Piece::Pawn, 28);
+    expected.side_to_move = Color::Black;
+    expected.en_passant = Some(20);
+    expected.halfmove_clock = 7;
+    expected.fullmove_number = 23;
+    assert_eq!(
+        Board::from_fen("4k3/8/8/8/4P3/8/8/4K3 b - e3 7 23"),
+        Some(expected)
+    );
+}
+
+#[test]
+fn fen_accepts_omitted_clocks_with_defaults() {
+    let board = Board::from_fen("4k3/8/8/8/8/8/8/4K3 w - -").unwrap();
+    assert_eq!(board.halfmove_clock, 0);
+    assert_eq!(board.fullmove_number, 1);
+}
+
+#[test]
+fn fen_rejects_malformed_fields() {
+    for fen in [
+        "",
+        "8/8/8/8/8/8/8/8 w -",
+        "8/8/8/8/8/8/8/X7 w - - 0 1",
+        "8/8/8/8/8/8/8/8 x - - 0 1",
+        "8/8/8/8/8/8/8/8 w A - 0 1",
+        "8/8/8/8/8/8/8/8 w - i3 0 1",
+        "8/8/8/8/8/8/8/8 w - e4 0 1",
+        "8/8/8/8/8/8/8/8 w - - nope 1",
+        "8/8/8/8/8/8/8/8 w - - 0 -1",
+    ] {
+        assert!(Board::from_fen(fen).is_none(), "accepted {fen:?}");
+    }
+}
+
+#[test]
+fn fen_rejects_incorrect_rank_widths_and_counts() {
+    for placement in [
+        "7/8/8/8/8/8/8/8",
+        "88/8/8/8/8/8/8/8",
+        "8/8/8/8/8/8/8",
+        "8/8/8/8/8/8/8/8/8",
+        "8/8/8/8/8/8/8/7",
+    ] {
+        assert!(
+            Board::from_fen(&format!("{placement} w - - 0 1")).is_none(),
+            "accepted {placement}"
+        );
+    }
+}
+
+#[test]
+fn generates_and_restores_castling_for_both_sides_and_wings() {
+    for (side, color, from, to, rook_from, rook_to) in [
+        ("w", Color::White, 4, 6, 7, 5),
+        ("w", Color::White, 4, 2, 0, 3),
+        ("b", Color::Black, 60, 62, 63, 61),
+        ("b", Color::Black, 60, 58, 56, 59),
+    ] {
+        let mut board =
+            Board::from_fen(&format!("r3k2r/8/8/8/8/8/8/R3K2R {side} KQkq - 0 1")).unwrap();
+        let before = board.clone();
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+        assert!(board.generate_legal_moves().contains(&mv), "missing {mv:?}");
+        let undo = board.make_move(mv);
+        assert_eq!(board.piece_at(color, to), Some(Piece::King));
+        assert_eq!(board.piece_at(color, rook_to), Some(Piece::Rook));
+        assert_eq!(board.piece_at(color, rook_from), None);
+        board.unmake_move(undo);
+        assert_eq!(board, before);
+    }
+}
+
+#[test]
+fn generates_all_four_promotions_for_both_colors() {
+    for (fen, from, to) in [
+        ("k7/4P3/8/8/8/8/8/4K3 w - - 0 1", 52, 60),
+        ("4k3/8/8/8/8/8/4p3/K7 b - - 0 1", 12, 4),
+    ] {
+        let mut board = Board::from_fen(fen).unwrap();
+        let moves: Vec<_> = board
+            .generate_legal_moves()
+            .into_iter()
+            .filter(|mv| mv.from == from && mv.to == to)
+            .collect();
+        assert_eq!(moves.len(), 4);
+        for piece in [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight] {
+            assert!(moves.contains(&Move {
+                from,
+                to,
+                promotion: Some(piece)
+            }));
+        }
+    }
+}
+
+#[test]
+fn generates_legal_en_passant_for_both_colors() {
+    for (fen, from, to, captured) in [
+        ("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", 36, 43, 35),
+        ("4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1", 28, 19, 27),
+    ] {
+        let mut board = Board::from_fen(fen).unwrap();
+        let before = board.clone();
+        let side = board.side_to_move;
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+        assert!(board.generate_legal_moves().contains(&mv));
+        let undo = board.make_move(mv);
+        assert_eq!(board.piece_at(side, to), Some(Piece::Pawn));
+        assert_eq!(board.piece_at(side.opposite(), captured), None);
+        board.unmake_move(undo);
+        assert_eq!(board, before);
+    }
+}
+
+#[test]
+fn en_passant_cannot_expose_own_king_to_rook() {
+    let mut board = Board::from_fen("k7/8/8/r4pPK/8/8/8/8 w - f6 0 1").unwrap();
+    let before = board.clone();
+    assert!(!board.generate_legal_moves().contains(&Move {
+        from: 38,
+        to: 45,
+        promotion: None
+    }));
+    assert_eq!(board, before);
+}

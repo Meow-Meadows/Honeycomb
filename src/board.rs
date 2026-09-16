@@ -80,11 +80,17 @@ impl Board {
         for ch in piece_placement.chars() {
             match ch {
                 '/' => {
+                    if file != 8 || rank == 0 {
+                        return None;
+                    }
                     rank -= 1;
                     file = 0;
                 }
                 '1'..='8' => {
                     file += ch.to_digit(10)? as i8;
+                    if file > 8 {
+                        return None;
+                    }
                 }
                 other => {
                     if rank < 0 || file > 7 {

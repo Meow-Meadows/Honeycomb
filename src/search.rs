@@ -93,10 +93,6 @@ pub fn alpha_beta(
         return None;
     }
 
-    if depth == 0 {
-        return Some(evaluate(board));
-    }
-
     let legal_moves = ordered_legal_moves(board);
 
     if legal_moves.is_empty() {
@@ -107,6 +103,11 @@ pub fn alpha_beta(
             //stalemate
             return Some(0);
         }
+    }
+
+    // Terminal positions must be recognized even at the search horizon.
+    if depth == 0 {
+        return Some(evaluate(board));
     }
 
     for mv in legal_moves {
