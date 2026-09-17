@@ -7,10 +7,32 @@ const CHECKMATE_SCORE: i32 = 100_000;
 pub struct SearchContext {
     pub deadline: Instant,
     pub nodes: u64,
+    pub qnodes: u64,
 }
 impl SearchContext {
     pub fn is_time_up(&mut self) -> bool {
         self.nodes.is_multiple_of(1024) && Instant::now() >= self.deadline
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct SearchInfo {
+    pub depth: u32,
+    pub score: i32,
+    pub nodes: u64,
+    pub qnodes: u64,
+    pub elapsed: Duration,
+}
+
+impl SearchInfo {
+    pub fn nps(&self) -> u64 {
+        let seconds = self.elapsed.as_secs_f64();
+
+        if seconds == 0.0 {
+            return 0;
+        }
+
+        (self.nodes as f64 / seconds) as u64
     }
 }
 
@@ -51,6 +73,7 @@ fn quiescence(
     qply: u32,
 ) -> Option<i32> {
     ctx.nodes += 1;
+    ctx.qnodes += 1;
 
     if ctx.is_time_up() {
         return None;
@@ -152,7 +175,19 @@ pub fn alpha_beta(
 
     Some(alpha)
 }
+
 pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<Move> {
+    find_best_move_with_info(board, depth, limit, |_| {})
+}
+
+pub fn find_best_move_with_info(
+    board: &mut Board,
+    depth: u32,
+    limit: Duration,
+    mut report: impl FnMut(SearchInfo),
+) -> Option<Move> {
+    let started = Instant::now();
+
     let moves = ordered_legal_moves(board);
     if moves.is_empty() {
         return None;
@@ -161,6 +196,7 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
     let mut ctx = SearchContext {
         deadline: Instant::now() + limit,
         nodes: 0,
+        qnodes: 0,
     };
 
     let mut best_move = moves.first().copied();
@@ -195,6 +231,14 @@ pub fn find_best_move(board: &mut Board, depth: u32, limit: Duration) -> Option<
         }
         if completed_depth {
             best_move = curr_best_move;
+
+            report(SearchInfo {
+                depth: curr_depth,
+                score: curr_best_score,
+                nodes: ctx.nodes,
+                qnodes: ctx.qnodes,
+                elapsed: started.elapsed(),
+            });
         } else {
             break;
         }

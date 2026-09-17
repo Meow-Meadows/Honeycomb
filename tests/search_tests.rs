@@ -34,6 +34,7 @@ fn timed_out_search_restores_the_board() {
     let mut context = SearchContext {
         deadline: Instant::now() - Duration::from_secs(1),
         nodes: 0,
+        qnodes: 0,
     };
 
     assert_eq!(
@@ -78,6 +79,7 @@ fn checkmate_has_no_best_move_and_scores_as_a_loss_at_every_depth() {
         let mut ctx = SearchContext {
             deadline: Instant::now() + Duration::from_secs(10),
             nodes: 0,
+            qnodes: 0,
         };
         let score = alpha_beta(&mut board, depth, i32::MIN + 1, i32::MAX, &mut ctx).unwrap();
         assert!(
@@ -99,6 +101,7 @@ fn stalemate_has_no_best_move_and_scores_as_a_draw_at_every_depth() {
         let mut ctx = SearchContext {
             deadline: Instant::now() + Duration::from_secs(10),
             nodes: 0,
+            qnodes: 0,
         };
         assert_eq!(
             alpha_beta(&mut board, depth, i32::MIN + 1, i32::MAX, &mut ctx),

@@ -1,6 +1,6 @@
 use crate::{
     board::{Board, Color, Move, Piece},
-    search::find_best_move,
+    search::find_best_move_with_info,
 };
 use std::{
     io::{self, BufRead, Write},
@@ -168,7 +168,30 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
 
                 let time_limit = go_time_limit(&board, rest);
 
-                match find_best_move(&mut board, depth, time_limit) {
+                let best_move = find_best_move_with_info(&mut board, depth, time_limit, |info| {
+                    write!(
+                        output,
+                        "info depth {} nodes {} nps {} time {}",
+                        info.depth,
+                        info.nodes,
+                        info.nps(),
+                        info.elapsed.as_millis(),
+                    )
+                    .expect("UCI output failed");
+
+                    if info.score.abs() < 100_000 {
+                        write!(output, " score cp {}", info.score).expect("UCI output failed");
+                    }
+
+                    writeln!(output).expect("UCI output failed");
+
+                    writeln!(output, "info string qnodes {}", info.qnodes,)
+                        .expect("UCI output failed");
+
+                    output.flush().expect("UCI output failed");
+                });
+
+                match best_move {
                     Some(mv) => writeln!(output, "bestmove {}", move_to_uci(mv)),
                     None => writeln!(output, "bestmove 0000"),
                 }

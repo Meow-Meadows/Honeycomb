@@ -8,6 +8,7 @@ fn context() -> SearchContext {
     SearchContext {
         deadline: Instant::now() + Duration::from_secs(10),
         nodes: 0,
+        qnodes: 0,
     }
 }
 
@@ -116,6 +117,7 @@ fn timeout_inside_a_capture_restores_the_board() {
         // Polling occurs every 1024 nodes: expire in the capture's child,
         // not on entry, so this exercises cancellation after make_move.
         nodes: 1_022,
+        qnodes: 0,
     };
     assert_eq!(alpha_beta(&mut board, 0, -200_000, 200_000, &mut ctx), None);
     assert!(ctx.nodes >= 1_024);
