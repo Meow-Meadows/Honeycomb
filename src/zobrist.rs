@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+use crate::board::{Color, Piece};
 pub type ZobristKey = u64;
 struct Prng {
     state: u64,
@@ -80,4 +82,23 @@ impl ZobristRandoms {
             None => self.en_passant[64],
         }
     }
+}
+
+static KEYS: LazyLock<ZobristRandoms> = LazyLock::new(ZobristRandoms::new);
+
+#[inline(always)]
+pub fn piece_key(color: Color, piece: Piece, square: u8) -> ZobristKey {
+    KEYS.acc_piece(color as usize, piece as usize, square as usize)
+}
+#[inline(always)]
+pub fn side_key() -> ZobristKey {
+    KEYS.acc_side(1)
+}
+#[inline(always)]
+pub fn castling_key(castling_rights: u8) -> ZobristKey {
+    KEYS.acc_castling(castling_rights as usize)
+}
+#[inline(always)]
+pub fn en_passant_key(square: u8) -> ZobristKey {
+    KEYS.acc_en_passant(Some(square as usize))
 }
