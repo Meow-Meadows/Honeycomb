@@ -1,5 +1,5 @@
-use std::sync::LazyLock;
 use crate::board::{Color, Piece};
+use std::sync::LazyLock;
 pub type ZobristKey = u64;
 struct Prng {
     state: u64,
@@ -25,6 +25,11 @@ pub struct ZobristRandoms {
     pub castling: [ZobristKey; 16],
     pub en_passant: [ZobristKey; 65],
 }
+impl Default for ZobristRandoms {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl ZobristRandoms {
     const PRNG_SEED: u64 = 0x07072023;
     pub fn new() -> Self {
@@ -34,28 +39,25 @@ impl ZobristRandoms {
         let mut prng = Prng::new(seed);
 
         let mut pieces = [[[0u64; 64]; 6]; 2];
-        for side in 0..2 {
-            for piece in 0..6 {
-                for sq in 0..64 {
-                    pieces[side][piece][sq] = prng.next_int();
+        for side in &mut pieces {
+            for piece in side {
+                for sq in piece {
+                    *sq = prng.next_int();
                 }
             }
         }
 
         let mut castling = [0u64; 16];
-        for r in 0..16 {
-            castling[r] = prng.next_int();
+        for entry in &mut castling {
+            *entry = prng.next_int();
         }
-
         let mut side_to_move = [0u64; 2];
         side_to_move[0] = prng.next_int();
         side_to_move[1] = prng.next_int();
-
         let mut en_passant = [0u64; 65];
-        for f in 0..65 {
-            en_passant[f] = prng.next_int();
+        for entry in &mut en_passant {
+            *entry = prng.next_int();
         }
-
         Self {
             pieces,
             side_to_move,

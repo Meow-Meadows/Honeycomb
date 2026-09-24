@@ -68,12 +68,11 @@ pub struct Board {
 impl PartialEq for Board {
     fn eq(&self, other: &Self) -> bool {
         self.pieces == other.pieces
-        && self.side_to_move == other.side_to_move
-        && self.castling_rights == other.castling_rights
-        && self.en_passant == other.en_passant
-        && self.halfmove_clock == other.halfmove_clock
-        && self.fullmove_number == other.fullmove_number
-
+            && self.side_to_move == other.side_to_move
+            && self.castling_rights == other.castling_rights
+            && self.en_passant == other.en_passant
+            && self.halfmove_clock == other.halfmove_clock
+            && self.fullmove_number == other.fullmove_number
     }
 }
 
@@ -81,7 +80,11 @@ impl Board {
     pub fn compute_hash(&self) -> u64 {
         let mut hash = 0u64;
         for color_idx in 0..2 {
-            let color = if color_idx == 0 {Color::White} else {Color::Black};
+            let color = if color_idx == 0 {
+                Color::White
+            } else {
+                Color::Black
+            };
             for piece_idx in 0..6 {
                 let piece = match piece_idx {
                     0 => Piece::Pawn,
@@ -969,11 +972,7 @@ impl Board {
             self.remove_piece(moving_side, Piece::Rook, rook_to);
             self.add_piece(moving_side, Piece::Rook, rook_from);
         }
-
-
-
     }
-
 
     pub fn perft(&mut self, depth: u32) -> u64 {
         if depth == 0 {
