@@ -1,4 +1,8 @@
 use crate::board::Move;
+use std::mem::size_of;
+
+pub(crate) const MIN_HASH_MB: usize = 1;
+pub(crate) const MAX_HASH_MB: usize = if usize::BITS >= 64 { 6144 } else { 2047 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Bound {
@@ -27,6 +31,38 @@ impl TranspositionTable {
         }
     }
 
+    pub(crate) fn try_with_megabytes(megabytes: usize) -> Option<Self> {
+        if !(MIN_HASH_MB..=MAX_HASH_MB).contains(&megabytes) {
+            return None;
+        }
+
+        let bytes = megabytes.checked_mul(1024 * 1024)?;
+        let slot_count = bytes / size_of::<Option<Entry>>();
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(slot_count).ok()?;
+        entries.resize(slot_count, None);
+
+        Some(Self { entries })
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.fill(None);
+    }
+
+    pub(crate) fn hashfull(&self) -> u16 {
+        let sample_size = self.entries.len().min(1000);
+        if sample_size == 0 {
+            return 0;
+        }
+
+        let occupied = self.entries[..sample_size]
+            .iter()
+            .filter(|entry| entry.is_some())
+            .count();
+
+        (occupied * 1000 / sample_size) as u16
+    }
+
     fn index(&self, key: u64) -> usize {
         key as usize % self.entries.len()
     }
@@ -47,7 +83,7 @@ impl TranspositionTable {
 }
 #[cfg(test)]
 mod tests {
-    use super::{Bound, Entry, TranspositionTable};
+    use super::{Bound, Entry, MAX_HASH_MB, TranspositionTable};
     use crate::board::{Move, Piece};
 
     fn entry(key: u64, depth: u8, score: i32) -> Entry {
@@ -136,6 +172,28 @@ mod tests {
 
         assert!(table.get(1).is_none());
         assert_eq!(table.get(5).unwrap().score, 50);
+    }
+
+    #[test]
+    fn megabyte_allocation_uses_entry_size_and_rejects_out_of_range_values() {
+        let table = TranspositionTable::try_with_megabytes(1).unwrap();
+        assert_eq!(
+            table.entries.len() * size_of::<Option<Entry>>(),
+            (1024 * 1024 / size_of::<Option<Entry>>()) * size_of::<Option<Entry>>()
+        );
+        assert!(TranspositionTable::try_with_megabytes(0).is_none());
+        assert!(TranspositionTable::try_with_megabytes(MAX_HASH_MB + 1).is_none());
+    }
+
+    #[test]
+    fn clear_resets_hashfull_and_entries() {
+        let mut table = TranspositionTable::new(1000);
+        table.store(entry(1, 1, 10));
+        assert_eq!(table.hashfull(), 1);
+
+        table.clear();
+        assert_eq!(table.hashfull(), 0);
+        assert!(table.get(1).is_none());
     }
 
     #[test]

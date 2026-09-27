@@ -24,6 +24,39 @@ impl SearchContext {
         }
     }
 
+    pub fn with_hash_megabytes(deadline: Instant, megabytes: usize) -> Option<Self> {
+        Some(Self {
+            deadline,
+            nodes: 0,
+            qnodes: 0,
+            tt_hits: 0,
+            tt: TranspositionTable::try_with_megabytes(megabytes)?,
+        })
+    }
+
+    pub fn set_hash_megabytes(&mut self, megabytes: usize) -> bool {
+        let Some(table) = TranspositionTable::try_with_megabytes(megabytes) else {
+            return false;
+        };
+        self.tt = table;
+        true
+    }
+
+    pub fn clear_transposition_table(&mut self) {
+        self.tt.clear();
+    }
+
+    pub fn hashfull(&self) -> u16 {
+        self.tt.hashfull()
+    }
+
+    fn begin_search(&mut self, deadline: Instant) {
+        self.deadline = deadline;
+        self.nodes = 0;
+        self.qnodes = 0;
+        self.tt_hits = 0;
+    }
+
     pub fn is_time_up(&mut self) -> bool {
         self.nodes.is_multiple_of(1024) && Instant::now() >= self.deadline
     }
@@ -36,6 +69,7 @@ pub struct SearchInfo {
     pub nodes: u64,
     pub qnodes: u64,
     pub tt_hits: u64,
+    pub hashfull: u16,
     pub elapsed: Duration,
 }
 
@@ -249,12 +283,24 @@ pub fn find_best_move_with_info(
 ) -> Option<Move> {
     let started = Instant::now();
 
+    let mut ctx = SearchContext::new(started + limit);
+    find_best_move_with_context(board, depth, limit, &mut ctx, &mut report)
+}
+
+pub fn find_best_move_with_context(
+    board: &mut Board,
+    depth: u32,
+    limit: Duration,
+    ctx: &mut SearchContext,
+    mut report: impl FnMut(SearchInfo),
+) -> Option<Move> {
+    let started = Instant::now();
+    ctx.begin_search(started + limit);
+
     let moves = ordered_legal_moves(board, None);
     if moves.is_empty() {
         return None;
     }
-
-    let mut ctx = SearchContext::new(started + limit);
 
     let mut best_move = moves.first().copied();
 
@@ -267,7 +313,7 @@ pub fn find_best_move_with_info(
 
         for &mv in &moves {
             let undo = board.make_move(mv);
-            let res = alpha_beta(board, curr_depth - 1, -beta, -alpha, &mut ctx);
+            let res = alpha_beta(board, curr_depth - 1, -beta, -alpha, ctx);
             board.unmake_move(undo);
 
             match res {
@@ -295,6 +341,7 @@ pub fn find_best_move_with_info(
                 nodes: ctx.nodes,
                 qnodes: ctx.qnodes,
                 tt_hits: ctx.tt_hits,
+                hashfull: ctx.hashfull(),
                 elapsed: started.elapsed(),
             });
         } else {

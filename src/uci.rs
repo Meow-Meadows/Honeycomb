@@ -1,14 +1,16 @@
 use crate::{
     board::{Board, Color, Move, Piece},
-    search::find_best_move_with_info,
+    search::{SearchContext, find_best_move_with_context},
+    transposition::{MAX_HASH_MB, MIN_HASH_MB},
 };
 use std::{
     io::{self, BufRead, Write},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_SEARCH_DEPTH: u32 = 64;
 const MOVE_OVERHEAD_MS: u64 = 200;
+const DEFAULT_HASH_MB: usize = 16;
 
 fn square(s: &str) -> Option<u8> {
     let bytes = s.as_bytes();
@@ -105,6 +107,8 @@ pub fn run() {
 
 fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
     let mut board = Board::starting_position();
+    let mut search_context = SearchContext::with_hash_megabytes(Instant::now(), DEFAULT_HASH_MB)
+        .expect("default hash size must be valid and allocatable");
 
     for line in input.lines() {
         let Ok(line) = line else { break };
@@ -114,10 +118,35 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
             ["uci"] => {
                 writeln!(output, "id name honeycombee").expect("UCI output failed");
                 writeln!(output, "id author Leon Mamic, Zoe Posokhova").expect("UCI output failed");
+                writeln!(
+                    output,
+                    "option name Hash type spin default {DEFAULT_HASH_MB} min {MIN_HASH_MB} max {MAX_HASH_MB}"
+                )
+                .expect("UCI output failed");
                 writeln!(output, "uciok").expect("UCI output failed");
             }
             ["isready"] => writeln!(output, "readyok").expect("UCI output failed"),
-            ["ucinewgame"] => board = Board::starting_position(),
+            ["ucinewgame"] => {
+                board = Board::starting_position();
+                search_context.clear_transposition_table();
+            }
+            ["setoption", "name", option @ ..] => {
+                if let Some(value_index) = option.iter().position(|&field| field == "value") {
+                    let name = option[..value_index].join(" ");
+                    let value = option
+                        .get(value_index + 1)
+                        .and_then(|value| value.parse::<usize>().ok());
+
+                    if name.eq_ignore_ascii_case("Hash") {
+                        match value {
+                            Some(megabytes) if search_context.set_hash_megabytes(megabytes) => {}
+                            _ => eprintln!(
+                                "invalid or unavailable Hash size; expected {MIN_HASH_MB}..={MAX_HASH_MB} MB"
+                            ),
+                        }
+                    }
+                }
+            }
 
             ["position", rest @ ..] => {
                 let move_index = rest
@@ -168,29 +197,37 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
 
                 let time_limit = go_time_limit(&board, rest);
 
-                let best_move = find_best_move_with_info(&mut board, depth, time_limit, |info| {
-                    write!(
-                        output,
-                        "info depth {} nodes {} nps {} time {} tbhits {}",
-                        info.depth,
-                        info.nodes,
-                        info.nps(),
-                        info.elapsed.as_millis(),
-                        info.tt_hits,
-                    )
-                    .expect("UCI output failed");
-
-                    if info.score.abs() < 100_000 {
-                        write!(output, " score cp {}", info.score).expect("UCI output failed");
-                    }
-
-                    writeln!(output).expect("UCI output failed");
-
-                    writeln!(output, "info string qnodes {}", info.qnodes,)
+                let best_move = find_best_move_with_context(
+                    &mut board,
+                    depth,
+                    time_limit,
+                    &mut search_context,
+                    |info| {
+                        write!(
+                            output,
+                            "info depth {} nodes {} nps {} time {} hashfull {}",
+                            info.depth,
+                            info.nodes,
+                            info.nps(),
+                            info.elapsed.as_millis(),
+                            info.hashfull,
+                        )
                         .expect("UCI output failed");
 
-                    output.flush().expect("UCI output failed");
-                });
+                        if info.score.abs() < 100_000 {
+                            write!(output, " score cp {}", info.score).expect("UCI output failed");
+                        }
+
+                        writeln!(output).expect("UCI output failed");
+
+                        writeln!(output, "info string tthits {}", info.tt_hits)
+                            .expect("UCI output failed");
+                        writeln!(output, "info string qnodes {}", info.qnodes,)
+                            .expect("UCI output failed");
+
+                        output.flush().expect("UCI output failed");
+                    },
+                );
 
                 match best_move {
                     Some(mv) => writeln!(output, "bestmove {}", move_to_uci(mv)),
