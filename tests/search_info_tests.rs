@@ -62,6 +62,7 @@ fn nps_handles_zero_and_submillisecond_durations() {
         score: 0,
         nodes: 100,
         qnodes: 50,
+        tt_hits: 0,
         elapsed: Duration::ZERO,
     };
     assert_eq!(info.nps(), 0);

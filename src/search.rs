@@ -1,5 +1,6 @@
 use crate::board::{Board, Move, Piece};
 use crate::eval::{evaluate, piece_value};
+use crate::transposition::{Bound, Entry, TranspositionTable};
 use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 const CHECKMATE_SCORE: i32 = 100_000;
@@ -8,8 +9,21 @@ pub struct SearchContext {
     pub deadline: Instant,
     pub nodes: u64,
     pub qnodes: u64,
+    pub tt_hits: u64,
+    tt: TranspositionTable,
 }
 impl SearchContext {
+    pub fn new(deadline: Instant) -> Self {
+        Self {
+            deadline,
+            nodes: 0,
+            qnodes: 0,
+            tt_hits: 0,
+            tt: TranspositionTable::new(1 << 18),
+            // needs to be changed to actually calculate size based on memory
+        }
+    }
+
     pub fn is_time_up(&mut self) -> bool {
         self.nodes.is_multiple_of(1024) && Instant::now() >= self.deadline
     }
@@ -21,6 +35,7 @@ pub struct SearchInfo {
     pub score: i32,
     pub nodes: u64,
     pub qnodes: u64,
+    pub tt_hits: u64,
     pub elapsed: Duration,
 }
 
@@ -57,10 +72,10 @@ fn move_order_score(board: &Board, mv: Move) -> i32 {
     score
 }
 
-fn ordered_legal_moves(board: &mut Board) -> Vec<Move> {
+fn ordered_legal_moves(board: &mut Board, preferred: Option<Move>) -> Vec<Move> {
     let mut moves = board.generate_legal_moves();
 
-    moves.sort_unstable_by_key(|&mv| Reverse(move_order_score(board, mv)));
+    moves.sort_unstable_by_key(|&mv| Reverse((Some(mv) == preferred, move_order_score(board, mv))));
 
     moves
 }
@@ -80,7 +95,7 @@ fn quiescence(
     }
 
     let in_check = board.in_check(board.side_to_move);
-    let legal_moves = ordered_legal_moves(board);
+    let legal_moves = ordered_legal_moves(board, None);
 
     if legal_moves.is_empty() {
         return Some(if in_check { -CHECKMATE_SCORE } else { 0 });
@@ -148,7 +163,28 @@ pub fn alpha_beta(
         return None;
     }
 
-    let legal_moves = ordered_legal_moves(board);
+    let original_alpha = alpha;
+    let key = board.hash;
+    let cached = ctx.tt.get(key);
+
+    let preferred_move = cached.and_then(|entry| entry.best_move);
+
+    if let Some(entry) = cached
+        && entry.depth as u32 >= depth
+    {
+        let score_is_useful = match entry.bound {
+            Bound::Exact => true,
+            Bound::Lower => entry.score >= beta,
+            Bound::Upper => entry.score <= alpha,
+        };
+
+        if score_is_useful {
+            ctx.tt_hits += 1;
+            return Some(entry.score);
+        }
+    }
+
+    let legal_moves = ordered_legal_moves(board, preferred_move);
 
     if legal_moves.is_empty() {
         return Some(if board.in_check(board.side_to_move) {
@@ -158,20 +194,45 @@ pub fn alpha_beta(
         });
     }
 
+    let mut best_move = None;
+    let mut best_score = i32::MIN + 1;
+
     for mv in legal_moves {
         let undo = board.make_move(mv);
-        let res = alpha_beta(board, depth - 1, -beta, -alpha, ctx);
+        let result = alpha_beta(board, depth - 1, -beta, -alpha, ctx);
         board.unmake_move(undo);
-        let score = -res?;
 
-        if score >= beta {
-            return Some(beta);
+        let score = -result?;
+
+        if score > best_score {
+            best_score = score;
+            best_move = Some(mv);
         }
 
         if score > alpha {
             alpha = score;
         }
+
+        if score >= beta {
+            break;
+        }
     }
+
+    let bound = if alpha <= original_alpha {
+        Bound::Upper
+    } else if alpha >= beta {
+        Bound::Lower
+    } else {
+        Bound::Exact
+    };
+
+    ctx.tt.store(Entry {
+        key,
+        depth: depth.min(u8::MAX as u32) as u8,
+        score: alpha,
+        bound,
+        best_move,
+    });
 
     Some(alpha)
 }
@@ -188,16 +249,12 @@ pub fn find_best_move_with_info(
 ) -> Option<Move> {
     let started = Instant::now();
 
-    let moves = ordered_legal_moves(board);
+    let moves = ordered_legal_moves(board, None);
     if moves.is_empty() {
         return None;
     }
 
-    let mut ctx = SearchContext {
-        deadline: Instant::now() + limit,
-        nodes: 0,
-        qnodes: 0,
-    };
+    let mut ctx = SearchContext::new(started + limit);
 
     let mut best_move = moves.first().copied();
 
@@ -237,6 +294,7 @@ pub fn find_best_move_with_info(
                 score: curr_best_score,
                 nodes: ctx.nodes,
                 qnodes: ctx.qnodes,
+                tt_hits: ctx.tt_hits,
                 elapsed: started.elapsed(),
             });
         } else {

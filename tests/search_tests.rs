@@ -31,11 +31,7 @@ fn search_restores_the_board_after_exploring_moves() {
 fn timed_out_search_restores_the_board() {
     let mut board = Board::starting_position();
     let before = board.clone();
-    let mut context = SearchContext {
-        deadline: Instant::now() - Duration::from_secs(1),
-        nodes: 0,
-        qnodes: 0,
-    };
+    let mut context = SearchContext::new(Instant::now() - Duration::from_secs(1));
 
     assert_eq!(
         alpha_beta(&mut board, 6, i32::MIN + 1, i32::MAX, &mut context),
@@ -76,11 +72,7 @@ fn checkmate_has_no_best_move_and_scores_as_a_loss_at_every_depth() {
     assert!(board.generate_legal_moves().is_empty());
     assert_eq!(find_best_move(&mut board, 2, Duration::from_secs(1)), None);
     for depth in [0, 1, 2] {
-        let mut ctx = SearchContext {
-            deadline: Instant::now() + Duration::from_secs(10),
-            nodes: 0,
-            qnodes: 0,
-        };
+        let mut ctx = SearchContext::new(Instant::now() + Duration::from_secs(10));
         let score = alpha_beta(&mut board, depth, i32::MIN + 1, i32::MAX, &mut ctx).unwrap();
         assert!(
             score < -10_000,
@@ -98,11 +90,7 @@ fn stalemate_has_no_best_move_and_scores_as_a_draw_at_every_depth() {
     assert!(board.generate_legal_moves().is_empty());
     assert_eq!(find_best_move(&mut board, 2, Duration::from_secs(1)), None);
     for depth in [0, 1, 2] {
-        let mut ctx = SearchContext {
-            deadline: Instant::now() + Duration::from_secs(10),
-            nodes: 0,
-            qnodes: 0,
-        };
+        let mut ctx = SearchContext::new(Instant::now() + Duration::from_secs(10));
         assert_eq!(
             alpha_beta(&mut board, depth, i32::MIN + 1, i32::MAX, &mut ctx),
             Some(0),
@@ -110,4 +98,21 @@ fn stalemate_has_no_best_move_and_scores_as_a_draw_at_every_depth() {
         );
         assert_eq!(board, before);
     }
+}
+
+#[test]
+fn transposition_table_reuses_a_previously_searched_position() {
+    let mut board = Board::starting_position();
+    let before = board.clone();
+    let mut context = SearchContext::new(Instant::now() + Duration::from_secs(10));
+
+    let first = alpha_beta(&mut board, 3, i32::MIN + 1, i32::MAX, &mut context).unwrap();
+    let nodes_after_first = context.nodes;
+    let hits_before_second = context.tt_hits;
+    let second = alpha_beta(&mut board, 3, i32::MIN + 1, i32::MAX, &mut context).unwrap();
+
+    assert_eq!(second, first);
+    assert!(context.tt_hits > hits_before_second);
+    assert!(context.nodes - nodes_after_first < nodes_after_first);
+    assert_eq!(board, before);
 }

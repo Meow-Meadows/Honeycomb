@@ -5,11 +5,7 @@ use honeycomb::{
 use std::time::{Duration, Instant};
 
 fn context() -> SearchContext {
-    SearchContext {
-        deadline: Instant::now() + Duration::from_secs(10),
-        nodes: 0,
-        qnodes: 0,
-    }
+    SearchContext::new(Instant::now() + Duration::from_secs(10))
 }
 
 #[test]
@@ -112,13 +108,10 @@ fn stand_pat_beta_cutoff_preserves_the_board() {
 fn timeout_inside_a_capture_restores_the_board() {
     let mut board = Board::from_fen("7k/8/8/8/8/8/q7/R6K w - - 0 1").unwrap();
     let before = board.clone();
-    let mut ctx = SearchContext {
-        deadline: Instant::now() - Duration::from_secs(1),
-        // Polling occurs every 1024 nodes: expire in the capture's child,
-        // not on entry, so this exercises cancellation after make_move.
-        nodes: 1_022,
-        qnodes: 0,
-    };
+    let mut ctx = SearchContext::new(Instant::now() - Duration::from_secs(1));
+    ctx.nodes = 1_022;
+    // Polling occurs every 1024 nodes: expire in the capture's child,
+    // not on entry, so this exercises cancellation after make_move.
     assert_eq!(alpha_beta(&mut board, 0, -200_000, 200_000, &mut ctx), None);
     assert!(ctx.nodes >= 1_024);
     assert_eq!(board, before);

@@ -44,6 +44,7 @@ fn go_emits_parseable_statistics_before_bestmove() {
         assert!(number("nodes") > 0);
         let _ = number("nps");
         let _ = number("time");
+        let _ = number("tbhits");
         assert!(line.contains(" score cp "));
     }
     let qnodes: Vec<u64> = lines

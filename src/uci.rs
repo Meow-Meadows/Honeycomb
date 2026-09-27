@@ -171,11 +171,12 @@ fn run_with<R: BufRead, W: Write>(input: R, output: &mut W) {
                 let best_move = find_best_move_with_info(&mut board, depth, time_limit, |info| {
                     write!(
                         output,
-                        "info depth {} nodes {} nps {} time {}",
+                        "info depth {} nodes {} nps {} time {} tbhits {}",
                         info.depth,
                         info.nodes,
                         info.nps(),
                         info.elapsed.as_millis(),
+                        info.tt_hits,
                     )
                     .expect("UCI output failed");
 
