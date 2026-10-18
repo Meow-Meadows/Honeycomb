@@ -5,6 +5,18 @@ use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 const CHECKMATE_SCORE: i32 = 100_000;
 
+const MVV_LVA: [[i32; 7]; 7] = [
+    [15, 14, 13, 12, 11, 10, 0],
+    [25, 24, 23, 22, 21, 20, 0],
+    [35, 34, 33, 32, 31, 30, 0],
+    [45, 44, 43, 42, 41, 40, 0],
+    [55, 54, 53, 52, 51, 50, 0],
+    [0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0],
+];
+//rows - victim, columns - attacker
+//pawn, knight, bishop, rook, queen, king, none
+
 pub struct SearchContext {
     pub deadline: Instant,
     pub nodes: u64,
@@ -85,7 +97,11 @@ impl SearchInfo {
     }
 }
 
-fn move_order_score(board: &Board, mv: Move) -> i32 {
+fn move_order_score(board: &Board, mv: Move, preferred_move: Option<Move>) -> i32 {
+    if Some(mv) == preferred_move {
+        return 100_000;
+    }
+
     let us = board.side_to_move;
     let enemy = us.opposite();
 
@@ -96,11 +112,20 @@ fn move_order_score(board: &Board, mv: Move) -> i32 {
     let mut score = 0;
 
     if let Some(captured_piece) = board.piece_at(enemy, mv.to) {
-        score += 10_000 + 10 * piece_value(captured_piece) - piece_value(moving_piece);
+        let victim_idx = captured_piece as usize;
+        let attacker_idx = moving_piece as usize;
+        score += 10_000 + MVV_LVA[victim_idx][attacker_idx];
     }
 
     if let Some(promoted_piece) = mv.promotion {
-        score += 20_000 + piece_value(promoted_piece);
+        let promo_bonus = match promoted_piece {
+            Piece::Queen => 9_000,
+            Piece::Rook => 5_000,
+            Piece::Bishop => 3_000,
+            Piece::Knight => 3_000,
+            _ => 0,
+        };
+        score += promo_bonus;
     }
 
     score
@@ -109,7 +134,11 @@ fn move_order_score(board: &Board, mv: Move) -> i32 {
 fn ordered_legal_moves(board: &mut Board, preferred: Option<Move>) -> Vec<Move> {
     let mut moves = board.generate_legal_moves();
 
-    moves.sort_unstable_by_key(|&mv| Reverse((Some(mv) == preferred, move_order_score(board, mv))));
+    moves.sort_unstable_by(|&a, &b| {
+        let score_a = move_order_score(board, a, preferred);
+        let score_b = move_order_score(board, b, preferred);
+        score_b.cmp(&score_a)
+    });
 
     moves
 }
