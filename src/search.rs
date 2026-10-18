@@ -1,7 +1,6 @@
 use crate::board::{Board, Move, Piece};
-use crate::eval::{evaluate, piece_value};
+use crate::eval::{evaluate};
 use crate::transposition::{Bound, Entry, TranspositionTable};
-use std::cmp::Reverse;
 use std::time::{Duration, Instant};
 const CHECKMATE_SCORE: i32 = 100_000;
 
@@ -112,8 +111,8 @@ fn move_order_score(board: &Board, mv: Move, preferred_move: Option<Move>) -> i3
     let mut score = 0;
 
     if let Some(captured_piece) = board.piece_at(enemy, mv.to) {
-        let victim_idx = captured_piece as usize;
-        let attacker_idx = moving_piece as usize;
+        let victim_idx = (captured_piece as usize).min(5);
+        let attacker_idx = (moving_piece as usize).min(5);
         score += 10_000 + MVV_LVA[victim_idx][attacker_idx];
     }
 
