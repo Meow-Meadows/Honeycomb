@@ -1,5 +1,5 @@
 use crate::board::{Board, Move, Piece};
-use crate::eval::{evaluate};
+use crate::eval::evaluate;
 use crate::transposition::{Bound, Entry, TranspositionTable};
 use std::time::{Duration, Instant};
 const CHECKMATE_SCORE: i32 = 100_000;
@@ -113,7 +113,13 @@ fn move_order_score(board: &Board, mv: Move, preferred_move: Option<Move>) -> i3
     if let Some(captured_piece) = board.piece_at(enemy, mv.to) {
         let victim_idx = (captured_piece as usize).min(5);
         let attacker_idx = (moving_piece as usize).min(5);
-        score += 10_000 + MVV_LVA[victim_idx][attacker_idx];
+        //score += 10_000 + MVV_LVA[victim_idx][attacker_idx];
+        let mvv_lva = MVV_LVA[victim_idx][attacker_idx];
+        if board.see_ge(mv, 0) {
+            score += 10_000 + mvv_lva;
+        } else {
+            score += 10_000 - mvv_lva;
+        }
     }
 
     if let Some(promoted_piece) = mv.promotion {
@@ -182,14 +188,15 @@ fn quiescence(
 
     for mv in legal_moves {
         let is_capture = board.piece_at(enemy, mv.to).is_some();
-
         let is_en_passant = board.piece_at(us, mv.from) == Some(Piece::Pawn)
             && board.en_passant == Some(mv.to)
             && mv.from % 8 != mv.to % 8;
 
         let is_promotion = mv.promotion.is_some();
-
         if !in_check && !is_capture && !is_en_passant && !is_promotion {
+            continue;
+        }
+        if !in_check && is_capture && !board.see_ge(mv, 0) {
             continue;
         }
 
