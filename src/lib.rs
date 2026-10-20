@@ -1,6 +1,10 @@
 pub mod board;
-pub mod eval;
-pub mod search;
-pub mod transposition;
+pub mod engine;
 pub mod uci;
-pub mod zobrist;
+
+pub use engine::transposition;
+pub use engine::zobrist;
+
+pub use board::Board;
+pub use engine::eval;
+pub use engine::search;
