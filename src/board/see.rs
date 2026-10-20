@@ -38,13 +38,13 @@ impl Board {
         let to_bb = 1u64 << to;
         let mut occupied = self.occupied_squares() ^ from_bb ^ to_bb;
         let mut attackers = self.attackers_to(to, occupied) & occupied;
-        let mut next_victim = moving_piece;
+        //let mut next_victim = moving_piece;
         loop {
             let stm_attackers = attackers & self.occupied_by(stm);
             if stm_attackers == 0 {
                 break;
             }
-            next_victim = self.min_attacker(to, stm_attackers, &mut occupied, &mut attackers);
+            let next_victim = self.min_attacker(to, stm_attackers, &mut occupied, &mut attackers);
 
             stm = stm.opposite();
             balance = -balance - 1 - SEE_PIECE_VALUES[next_victim as usize];
